@@ -18,6 +18,7 @@ import {
   ListFilter,
   MapPin,
   Menu,
+  Moon,
   PackageCheck,
   PackageOpen,
   Plus,
@@ -26,6 +27,7 @@ import {
   Search,
   ShoppingBasket,
   Store,
+  Sun,
   Truck,
   UserPlus,
   UsersRound,
@@ -36,6 +38,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "re
 
 type ViewId = "dashboard" | "order-form" | "orders" | "operation" | "purchases" | "clients" | "products" | "suppliers";
 type Navigate = (view: ViewId) => void;
+type Theme = "light" | "dark";
 
 type Order = {
   number: string;
@@ -106,6 +109,12 @@ const suppliers = [
 ];
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const getInitialTheme = (): Theme => {
+  const appliedTheme = document.documentElement.dataset.theme;
+  if (appliedTheme === "light" || appliedTheme === "dark") return appliedTheme;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+};
 
 function Sidebar({ open, close, current, navigate }: { open: boolean; close: () => void; current: ViewId; navigate: Navigate }) {
   const select = (view: ViewId) => {
@@ -389,6 +398,16 @@ function App() {
   const [view, setView] = useState<ViewId>(viewFromHash);
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [savedOrder, setSavedOrder] = useState(false);
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem("zeca-hortifruti-theme", theme);
+    } catch (_) {
+      // The selected theme still works for the current session when storage is unavailable.
+    }
+  }, [theme]);
 
   useEffect(() => {
     const handleHash = () => setView(viewFromHash());
@@ -428,6 +447,16 @@ function App() {
             <div className="search-box"><Search size={18} /><input aria-label="Pesquisar" placeholder="Buscar pedido, cliente ou produto..." /><kbd>⌘ K</kbd></div>
           </div>
           <div className="topbar__actions">
+            <button
+              className="icon-button theme-button"
+              type="button"
+              aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
+              aria-pressed={theme === "dark"}
+              title={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
+              onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
             <button className="icon-button notification-button" aria-label="Notificações"><Bell size={20} /><span /></button>
             <button className="primary-button" onClick={() => navigate("order-form")}><Plus size={18} />Novo pedido</button>
           </div>

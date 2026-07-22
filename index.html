@@ -6,6 +6,15 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#173f32" />
     <title>Zeca Hortifruti — Operação</title>
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("zeca-hortifruti-theme");
+        const preferredTheme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = savedTheme === "light" || savedTheme === "dark" ? savedTheme : preferredTheme;
+      } catch (_) {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
