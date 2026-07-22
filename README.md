@@ -18,6 +18,10 @@ Protótipo navegável do sistema operacional da Zeca Hortifruti. Esta versão fo
 - acompanhamento independente por data da operação: pedidos, compras, conferência e carregamento;
 - navegação adaptada para computador e celular.
 
+## Firebase preparado
+
+O projeto já contém integração opcional com Firebase Authentication e Firestore. Sem configuração, continua como demonstração. Depois da configuração, exige login Google, valida o UID em uma lista fechada e sincroniza os dados operacionais. Consulte [FIREBASE_SETUP.md](FIREBASE_SETUP.md) para o passo a passo completo.
+
 ## Executar localmente
 
 ```bash
@@ -33,6 +37,6 @@ npm run build
 
 A publicação no GitHub Pages é realizada automaticamente pelo workflow em `.github/workflows/deploy-pages.yml` a cada envio para a branch `main`.
 
-## Etapa futura
+## Segurança antes de dados reais
 
-Antes de inserir dados reais, o projeto deverá receber autenticação Google, autorização explícita de usuários, banco de dados protegido e regras de segurança no Firebase.
+Não insira informações confidenciais até concluir o checklist de autorização, regras e persistência descrito em `FIREBASE_SETUP.md`.

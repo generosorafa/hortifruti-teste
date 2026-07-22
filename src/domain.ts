@@ -13,6 +13,31 @@ export type Product = {
   aliases?: string[];
 };
 
+export type Client = {
+  id: string;
+  name: string;
+  contact: string;
+  phone: string;
+  address: string;
+  city: string;
+  observation: string;
+  orders: number;
+  status: string;
+};
+
+export type Supplier = {
+  id: string;
+  name: string;
+  categories: string;
+  contact: string;
+  phone: string;
+  address: string;
+  city: string;
+  observation: string;
+  delivery: string;
+  rating: string;
+};
+
 export type OrderItem = {
   id: string;
   productId: string;
@@ -24,6 +49,7 @@ export type OrderItem = {
 };
 
 export type Order = {
+  id: string;
   number: string;
   date: string;
   deliveryDate: string;
@@ -53,6 +79,21 @@ export type PurchaseAllocation = {
   unitCost: number;
 };
 
+export type PurchaseRecord = {
+  id: string;
+  number: string;
+  date: string;
+  supplier: string;
+  total: number;
+  status: PaymentStatus;
+};
+
+export type OperationDay = {
+  id: string;
+  date: string;
+  stages: boolean[];
+};
+
 export const products: Product[] = [
   { id: "tomate", code: "001", name: "Tomate italiano", category: "Hortaliças", unit: "kg", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"] },
   { id: "batata", code: "002", name: "Batata lavada", category: "Tubérculos", unit: "kg", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"] },
@@ -65,7 +106,7 @@ export const products: Product[] = [
   { id: "uva", code: "009", name: "Uva vitória", category: "Frutas", unit: "cx", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"] },
 ];
 
-export const clients = [
+export const clients: Client[] = [
   { id: "mercado-silva", name: "Mercado Silva", contact: "Marcos Silva", phone: "(11) 98842-1201", address: "Rua das Flores, 128", city: "São Paulo", observation: "Receber pela entrada lateral.", orders: 18, status: "Ativo" },
   { id: "padaria-central", name: "Padaria Central", contact: "Ana Martins", phone: "(11) 97731-4402", address: "Av. Central, 450", city: "São Paulo", observation: "Entrega antes das 7h.", orders: 12, status: "Ativo" },
   { id: "restaurante-italia", name: "Restaurante Itália", contact: "Paulo Neri", phone: "(11) 99128-5530", address: "Al. dos Jardins, 84", city: "São Paulo", observation: "Falar com a cozinha.", orders: 9, status: "Ativo" },
@@ -73,10 +114,17 @@ export const clients = [
   { id: "quitanda-bairro", name: "Quitanda do Bairro", contact: "Luciana Prado", phone: "(11) 97612-0034", address: "Rua do Comércio, 31", city: "São Paulo", observation: "", orders: 11, status: "Ativo" },
 ];
 
-export const suppliers = [
+export const suppliers: Supplier[] = [
   { id: "boa-colheita", name: "Sítio Boa Colheita", categories: "Folhas e hortaliças", contact: "João", phone: "(11) 98811-2200", address: "Box 18, Pavilhão A", city: "São Paulo", observation: "Seg, qua e sex", delivery: "Seg, qua e sex", rating: "Excelente" },
   { id: "vale-verde", name: "Distribuidora Vale Verde", categories: "Frutas e tubérculos", contact: "Beatriz", phone: "(11) 97744-1920", address: "Box 42, Pavilhão B", city: "São Paulo", observation: "Entrega diária", delivery: "Diária", rating: "Excelente" },
   { id: "nova-safra", name: "Cooperativa Nova Safra", categories: "Frutas da estação", contact: "Carlos", phone: "(11) 99150-4412", address: "Box 7, Pavilhão C", city: "São Paulo", observation: "Terças e quintas", delivery: "Ter e qui", rating: "Bom" },
+];
+
+export const initialPurchases: PurchaseRecord[] = [
+  { id: "C-208", number: "C-208", date: "2026-07-21", supplier: "Sítio Boa Colheita", total: 1280, status: "Pendente" },
+  { id: "C-207", number: "C-207", date: "2026-07-21", supplier: "Distribuidora Vale Verde", total: 2435, status: "Pago" },
+  { id: "C-206", number: "C-206", date: "2026-07-20", supplier: "Cooperativa Nova Safra", total: 1860, status: "Parcial" },
+  { id: "C-205", number: "C-205", date: "2026-07-19", supplier: "Sítio Boa Colheita", total: 940, status: "Pago" },
 ];
 
 const item = (productId: string, quantity: number, price?: number): OrderItem => {
@@ -85,11 +133,11 @@ const item = (productId: string, quantity: number, price?: number): OrderItem =>
 };
 
 export const initialOrders: Order[] = [
-  { number: "#1048", date: "2026-07-21", deliveryDate: "2026-07-22", customer: "Mercado Silva", items: [item("tomate", 20), item("batata", 15), item("alface", 12), item("banana", 3)], adjustment: -15, status: "Confirmado", paymentStatus: "Pendente", paymentMethod: "Não informado", observation: "Entregar pela entrada lateral até 8h." },
-  { number: "#1047", date: "2026-07-21", deliveryDate: "2026-07-22", customer: "Padaria Central", items: [item("tomate", 8), item("cebola", 6), item("couve", 10), item("laranja", 12)], adjustment: 0, status: "Separando", paymentStatus: "Pago", paymentMethod: "Pix", observation: "Separar as folhas em caixas plásticas." },
-  { number: "#1046", date: "2026-07-21", deliveryDate: "2026-07-22", customer: "Restaurante Itália", items: [item("tomate", 35, 6.5), item("batata", 22), item("cebola", 18), item("alface", 20), item("maca", 2)], adjustment: 25, status: "Conferido", paymentStatus: "Parcial", paymentMethod: "Transferência", observation: "Acréscimo combinado por entrega urgente." },
-  { number: "#1045", date: "2026-07-20", deliveryDate: "2026-07-21", customer: "Quitanda do Bairro", items: [item("banana", 6), item("laranja", 30), item("uva", 3)], adjustment: 0, status: "Conferido", paymentStatus: "Pago", paymentMethod: "Dinheiro", observation: "" },
-  { number: "#1044", date: "2026-07-19", deliveryDate: "2026-07-20", customer: "Hotel Avenida", items: [item("tomate", 18), item("batata", 20), item("maca", 4), item("laranja", 25)], adjustment: -32, status: "Conferido", paymentStatus: "Pendente", paymentMethod: "Boleto", observation: "Desconto referente à divergência de peso do pedido anterior." },
+  { id: "1048", number: "#1048", date: "2026-07-21", deliveryDate: "2026-07-22", customer: "Mercado Silva", items: [item("tomate", 20), item("batata", 15), item("alface", 12), item("banana", 3)], adjustment: -15, status: "Confirmado", paymentStatus: "Pendente", paymentMethod: "Não informado", observation: "Entregar pela entrada lateral até 8h." },
+  { id: "1047", number: "#1047", date: "2026-07-21", deliveryDate: "2026-07-22", customer: "Padaria Central", items: [item("tomate", 8), item("cebola", 6), item("couve", 10), item("laranja", 12)], adjustment: 0, status: "Separando", paymentStatus: "Pago", paymentMethod: "Pix", observation: "Separar as folhas em caixas plásticas." },
+  { id: "1046", number: "#1046", date: "2026-07-21", deliveryDate: "2026-07-22", customer: "Restaurante Itália", items: [item("tomate", 35, 6.5), item("batata", 22), item("cebola", 18), item("alface", 20), item("maca", 2)], adjustment: 25, status: "Conferido", paymentStatus: "Parcial", paymentMethod: "Transferência", observation: "Acréscimo combinado por entrega urgente." },
+  { id: "1045", number: "#1045", date: "2026-07-20", deliveryDate: "2026-07-21", customer: "Quitanda do Bairro", items: [item("banana", 6), item("laranja", 30), item("uva", 3)], adjustment: 0, status: "Conferido", paymentStatus: "Pago", paymentMethod: "Dinheiro", observation: "" },
+  { id: "1044", number: "#1044", date: "2026-07-19", deliveryDate: "2026-07-20", customer: "Hotel Avenida", items: [item("tomate", 18), item("batata", 20), item("maca", 4), item("laranja", 25)], adjustment: -32, status: "Conferido", paymentStatus: "Pendente", paymentMethod: "Boleto", observation: "Desconto referente à divergência de peso do pedido anterior." },
 ];
 
 export const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -112,9 +160,9 @@ const levenshtein = (left: string, right: string) => {
   return matrix[right.length][left.length];
 };
 
-const findProduct = (description: string) => {
+const findProduct = (description: string, catalog: Product[]) => {
   const query = normalize(description);
-  const candidates = products.flatMap((product) => [product.name, ...(product.aliases ?? [])].map((alias) => ({ product, alias: normalize(alias) })));
+  const candidates = catalog.flatMap((product) => [product.name, ...(product.aliases ?? [])].map((alias) => ({ product, alias: normalize(alias) })));
   const exact = candidates.find(({ alias }) => alias === query || query.includes(alias) || alias.includes(query));
   if (exact) return { productId: exact.product.id, needsReview: false };
   const ranked = candidates.map(({ product, alias }) => ({ product, distance: levenshtein(query, alias) })).sort((a, b) => a.distance - b.distance);
@@ -123,7 +171,7 @@ const findProduct = (description: string) => {
   return { productId: best && best.distance <= acceptedDistance ? best.product.id : "", needsReview: true };
 };
 
-export const parseOrderText = (text: string): ParsedLine[] => text
+export const parseOrderText = (text: string, catalog: Product[] = products): ParsedLine[] => text
   .split(/\r?\n/)
   .map((raw) => raw.trim())
   .filter(Boolean)
@@ -131,7 +179,7 @@ export const parseOrderText = (text: string): ParsedLine[] => text
     const match = raw.match(/^(\d+(?:[.,]\d+)?)\s*(?:x\s*)?(.+)$/i);
     const quantity = match ? Number(match[1].replace(",", ".")) : 1;
     const description = match?.[2] ?? raw;
-    const suggestion = findProduct(description);
+    const suggestion = findProduct(description, catalog);
     return { id: `parsed-${Date.now()}-${index}`, raw, quantity, ...suggestion };
   });
 
@@ -156,7 +204,7 @@ export const printOrder = (order: Order) => openPrintDocument(`Pedido ${order.nu
   <div class="footer">Documento operacional demonstrativo · Gerado pelo sistema Zeca Hortifruti</div>
 `);
 
-export const printLoadSheet = (orders: Order[], allocations: PurchaseAllocation[] = []) => {
+export const printLoadSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
   orders.forEach((order) => order.items.forEach((line) => {
     const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
@@ -170,7 +218,7 @@ export const printLoadSheet = (orders: Order[], allocations: PurchaseAllocation[
     <table><thead><tr><th>Comprar</th><th>Produto</th><th>Total do dia</th><th>Comprar em</th><th>Separar para</th><th>Carregado</th></tr></thead><tbody>${Array.from(grouped.values()).map((line) => {
       const purchases = allocations.filter((allocation) => allocation.productId === line.productId && allocation.deliveryDate === orders[0]?.deliveryDate && allocation.quantity > 0);
       const supplierLines = purchases.length ? purchases.map((allocation) => {
-        const supplier = suppliers.find((candidate) => candidate.id === allocation.supplierId)?.name ?? "Fornecedor não informado";
+        const supplier = supplierCatalog.find((candidate) => candidate.id === allocation.supplierId)?.name ?? "Fornecedor não informado";
         return `${supplier}: ${allocation.quantity} ${line.unit} · ${money(allocation.unitCost)}/${line.unit}`;
       }) : ["A definir"];
       return `<tr><td><span class="check"></span></td><td><strong>${escapeHtml(line.name)}</strong></td><td><strong>${escapeHtml(line.total)} ${escapeHtml(line.unit)}</strong></td><td class="supplier-breakdown">${supplierLines.map(escapeHtml).join("<br>")}</td><td class="customer-breakdown">${line.customers.map(escapeHtml).join("<br>")}</td><td><span class="check"></span></td></tr>`;
