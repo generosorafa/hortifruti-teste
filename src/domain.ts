@@ -4,6 +4,7 @@ export type PaymentMethod = "Não informado" | "Pix" | "Dinheiro" | "Boleto" | "
 
 export type Product = {
   id: string;
+  code: string;
   name: string;
   category: string;
   unit: Unit;
@@ -43,30 +44,39 @@ export type ParsedLine = {
   needsReview: boolean;
 };
 
+export type PurchaseAllocation = {
+  id: string;
+  deliveryDate: string;
+  productId: string;
+  supplierId: string;
+  quantity: number;
+  unitCost: number;
+};
+
 export const products: Product[] = [
-  { id: "tomate", name: "Tomate italiano", category: "Hortaliças", unit: "kg", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"] },
-  { id: "batata", name: "Batata lavada", category: "Tubérculos", unit: "kg", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"] },
-  { id: "cebola", name: "Cebola nacional", category: "Hortaliças", unit: "kg", costReference: 3.8, saleReference: 5.2, aliases: ["cebola"] },
-  { id: "banana", name: "Banana nanica", category: "Frutas", unit: "cx", costReference: 28, saleReference: 38, aliases: ["banana", "banana nanica"] },
-  { id: "alface", name: "Alface crespa", category: "Folhas", unit: "un", costReference: 2.1, saleReference: 3.2, aliases: ["alface", "alface crespa"] },
-  { id: "couve", name: "Couve manteiga", category: "Folhas", unit: "maço", costReference: 2.4, saleReference: 3.8, aliases: ["couve", "couve manteiga"] },
-  { id: "laranja", name: "Laranja pera", category: "Frutas", unit: "kg", costReference: 2.9, saleReference: 4.1, aliases: ["laranja", "laranja pera"] },
-  { id: "maca", name: "Maçã gala", category: "Frutas", unit: "cx", costReference: 92, saleReference: 118, aliases: ["maca", "maça", "maçã", "maca gala"] },
-  { id: "uva", name: "Uva vitória", category: "Frutas", unit: "cx", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"] },
+  { id: "tomate", code: "001", name: "Tomate italiano", category: "Hortaliças", unit: "kg", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"] },
+  { id: "batata", code: "002", name: "Batata lavada", category: "Tubérculos", unit: "kg", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"] },
+  { id: "cebola", code: "003", name: "Cebola nacional", category: "Hortaliças", unit: "kg", costReference: 3.8, saleReference: 5.2, aliases: ["cebola"] },
+  { id: "banana", code: "004", name: "Banana nanica", category: "Frutas", unit: "cx", costReference: 28, saleReference: 38, aliases: ["banana", "banana nanica"] },
+  { id: "alface", code: "005", name: "Alface crespa", category: "Folhas", unit: "un", costReference: 2.1, saleReference: 3.2, aliases: ["alface", "alface crespa"] },
+  { id: "couve", code: "006", name: "Couve manteiga", category: "Folhas", unit: "maço", costReference: 2.4, saleReference: 3.8, aliases: ["couve", "couve manteiga"] },
+  { id: "laranja", code: "007", name: "Laranja pera", category: "Frutas", unit: "kg", costReference: 2.9, saleReference: 4.1, aliases: ["laranja", "laranja pera"] },
+  { id: "maca", code: "008", name: "Maçã gala", category: "Frutas", unit: "cx", costReference: 92, saleReference: 118, aliases: ["maca", "maça", "maçã", "maca gala"] },
+  { id: "uva", code: "009", name: "Uva vitória", category: "Frutas", unit: "cx", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"] },
 ];
 
 export const clients = [
-  { id: "mercado-silva", name: "Mercado Silva", contact: "Marcos Silva", phone: "(11) 98842-1201", city: "Centro", orders: 18, status: "Ativo" },
-  { id: "padaria-central", name: "Padaria Central", contact: "Ana Martins", phone: "(11) 97731-4402", city: "Vila Nova", orders: 12, status: "Ativo" },
-  { id: "restaurante-italia", name: "Restaurante Itália", contact: "Paulo Neri", phone: "(11) 99128-5530", city: "Jardins", orders: 9, status: "Ativo" },
-  { id: "hotel-avenida", name: "Hotel Avenida", contact: "Carla Lima", phone: "(11) 96620-1184", city: "Centro", orders: 7, status: "Ativo" },
-  { id: "quitanda-bairro", name: "Quitanda do Bairro", contact: "Luciana Prado", phone: "(11) 97612-0034", city: "Vila Nova", orders: 11, status: "Ativo" },
+  { id: "mercado-silva", name: "Mercado Silva", contact: "Marcos Silva", phone: "(11) 98842-1201", address: "Rua das Flores, 128", city: "São Paulo", observation: "Receber pela entrada lateral.", orders: 18, status: "Ativo" },
+  { id: "padaria-central", name: "Padaria Central", contact: "Ana Martins", phone: "(11) 97731-4402", address: "Av. Central, 450", city: "São Paulo", observation: "Entrega antes das 7h.", orders: 12, status: "Ativo" },
+  { id: "restaurante-italia", name: "Restaurante Itália", contact: "Paulo Neri", phone: "(11) 99128-5530", address: "Al. dos Jardins, 84", city: "São Paulo", observation: "Falar com a cozinha.", orders: 9, status: "Ativo" },
+  { id: "hotel-avenida", name: "Hotel Avenida", contact: "Carla Lima", phone: "(11) 96620-1184", address: "Av. Paulista, 920", city: "São Paulo", observation: "Usar doca de serviço.", orders: 7, status: "Ativo" },
+  { id: "quitanda-bairro", name: "Quitanda do Bairro", contact: "Luciana Prado", phone: "(11) 97612-0034", address: "Rua do Comércio, 31", city: "São Paulo", observation: "", orders: 11, status: "Ativo" },
 ];
 
 export const suppliers = [
-  { id: "boa-colheita", name: "Sítio Boa Colheita", categories: "Folhas e hortaliças", contact: "João • (11) 98811-2200", delivery: "Seg, qua e sex", rating: "Excelente" },
-  { id: "vale-verde", name: "Distribuidora Vale Verde", categories: "Frutas e tubérculos", contact: "Beatriz • (11) 97744-1920", delivery: "Diária", rating: "Excelente" },
-  { id: "nova-safra", name: "Cooperativa Nova Safra", categories: "Frutas da estação", contact: "Carlos • (11) 99150-4412", delivery: "Ter e qui", rating: "Bom" },
+  { id: "boa-colheita", name: "Sítio Boa Colheita", categories: "Folhas e hortaliças", contact: "João", phone: "(11) 98811-2200", address: "Box 18, Pavilhão A", city: "São Paulo", observation: "Seg, qua e sex", delivery: "Seg, qua e sex", rating: "Excelente" },
+  { id: "vale-verde", name: "Distribuidora Vale Verde", categories: "Frutas e tubérculos", contact: "Beatriz", phone: "(11) 97744-1920", address: "Box 42, Pavilhão B", city: "São Paulo", observation: "Entrega diária", delivery: "Diária", rating: "Excelente" },
+  { id: "nova-safra", name: "Cooperativa Nova Safra", categories: "Frutas da estação", contact: "Carlos", phone: "(11) 99150-4412", address: "Box 7, Pavilhão C", city: "São Paulo", observation: "Terças e quintas", delivery: "Ter e qui", rating: "Bom" },
 ];
 
 const item = (productId: string, quantity: number, price?: number): OrderItem => {
@@ -131,7 +141,7 @@ const openPrintDocument = (title: string, body: string) => {
   const popup = window.open("", "_blank", "width=980,height=760");
   if (!popup) return false;
   popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;text-align:left;border-bottom:1px solid #d9e1dd}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:26px;min-width:72px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown{color:#516159;font-size:10px}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@media print{body{padding:10mm}.no-print{display:none}}
+    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@media print{body{padding:10mm}.no-print{display:none}}
   </style></head><body>${body}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`);
   popup.document.close();
   return true;
@@ -146,10 +156,10 @@ export const printOrder = (order: Order) => openPrintDocument(`Pedido ${order.nu
   <div class="footer">Documento operacional demonstrativo · Gerado pelo sistema Zeca Hortifruti</div>
 `);
 
-export const printLoadSheet = (orders: Order[]) => {
-  const grouped = new Map<string, { name: string; unit: Unit; total: number; customers: string[] }>();
+export const printLoadSheet = (orders: Order[], allocations: PurchaseAllocation[] = []) => {
+  const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
   orders.forEach((order) => order.items.forEach((line) => {
-    const current = grouped.get(line.productId) ?? { name: line.name, unit: line.unit, total: 0, customers: [] };
+    const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
     current.total += line.quantity;
     current.customers.push(`${order.customer}: ${line.quantity} ${line.unit}`);
     grouped.set(line.productId, current);
@@ -157,7 +167,32 @@ export const printLoadSheet = (orders: Order[]) => {
   return openPrintDocument("Folha de compra, separação e carregamento", `
     <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>Compra, separação e carregamento</h1></div><strong>Entrega ${escapeHtml(formatDate(orders[0]?.deliveryDate ?? "2026-07-22"))}</strong></header>
     <div class="meta"><div><span>Pedidos</span><strong>${orders.length}</strong></div><div><span>Clientes</span><strong>${new Set(orders.map((order) => order.customer)).size}</strong></div><div><span>Conferência</span><strong>CEASA</strong></div></div>
-    <table><thead><tr><th>Comprar</th><th>Produto</th><th>Total do dia</th><th>Separar para</th><th>Carregado</th></tr></thead><tbody>${Array.from(grouped.values()).map((line) => `<tr><td><span class="check"></span></td><td><strong>${escapeHtml(line.name)}</strong></td><td><strong>${escapeHtml(line.total)} ${escapeHtml(line.unit)}</strong></td><td class="customer-breakdown">${line.customers.map(escapeHtml).join("<br>")}</td><td><span class="check"></span></td></tr>`).join("")}</tbody></table>
+    <table><thead><tr><th>Comprar</th><th>Produto</th><th>Total do dia</th><th>Comprar em</th><th>Separar para</th><th>Carregado</th></tr></thead><tbody>${Array.from(grouped.values()).map((line) => {
+      const purchases = allocations.filter((allocation) => allocation.productId === line.productId && allocation.deliveryDate === orders[0]?.deliveryDate && allocation.quantity > 0);
+      const supplierLines = purchases.length ? purchases.map((allocation) => {
+        const supplier = suppliers.find((candidate) => candidate.id === allocation.supplierId)?.name ?? "Fornecedor não informado";
+        return `${supplier}: ${allocation.quantity} ${line.unit} · ${money(allocation.unitCost)}/${line.unit}`;
+      }) : ["A definir"];
+      return `<tr><td><span class="check"></span></td><td><strong>${escapeHtml(line.name)}</strong></td><td><strong>${escapeHtml(line.total)} ${escapeHtml(line.unit)}</strong></td><td class="supplier-breakdown">${supplierLines.map(escapeHtml).join("<br>")}</td><td class="customer-breakdown">${line.customers.map(escapeHtml).join("<br>")}</td><td><span class="check"></span></td></tr>`;
+    }).join("")}</tbody></table>
     <div class="footer">Use esta folha para comprar, separar por cliente e conferir o carregamento antes da saída.</div>
   `);
 };
+
+const csvCell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+
+export const downloadCsv = (filename: string, headers: string[], rows: Array<Array<string | number>>) => {
+  const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(";")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+export const printTableReport = (title: string, subtitle: string, headers: string[], rows: Array<Array<string | number>>) => openPrintDocument(title, `
+  <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>${escapeHtml(title)}</h1></div><strong>${escapeHtml(subtitle)}</strong></header>
+  <table style="margin-top:18px"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>
+  <div class="footer">Na janela de impressão, escolha “Salvar como PDF” para baixar o relatório.</div>
+`);
