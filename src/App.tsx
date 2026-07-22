@@ -68,6 +68,7 @@ import {
 type ViewId = "dashboard" | "order-form" | "orders" | "operation" | "purchases" | "clients" | "products" | "suppliers";
 type Theme = "light" | "dark";
 type Navigate = (view: ViewId) => void;
+type OperationStagesByDate = Record<string, boolean[]>;
 
 const routes: Record<ViewId, string> = {
   dashboard: "inicio",
@@ -161,9 +162,13 @@ const exportPeriodOptions = (dates: string[]) => {
   return { uniqueDates, months };
 };
 
-function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedDate, allocations }: { navigate: Navigate; startNewOrder: () => void; orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[] }) {
+function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedDate, allocations, operationStages }: { navigate: Navigate; startNewOrder: () => void; orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; operationStages: OperationStagesByDate }) {
   const currentOrders = orders.filter((order) => order.deliveryDate === selectedDate);
   const deliveryTitle = new Intl.DateTimeFormat("pt-BR", { weekday: "long", timeZone: "UTC" }).format(new Date(`${selectedDate}T12:00:00Z`));
+  const stages = operationStages[selectedDate] ?? [currentOrders.length > 0, false, false, false];
+  const currentStage = stages.findIndex((completed) => !completed);
+  const stageClass = (index: number) => stages[index] ? "step step--done" : index === currentStage ? "step step--current" : "step";
+  const stageStatus = (index: number) => stages[index] ? "Concluído" : index === currentStage ? "Em andamento" : "Aguardando";
   const salesTotal = currentOrders.reduce((sum, order) => sum + orderTotal(order), 0);
   const receivable = orders.filter((order) => order.paymentStatus !== "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
   const debtors = orders.filter((order) => order.paymentStatus !== "Pago");
@@ -179,10 +184,10 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
       <section className="operation-hero">
         <div className="operation-hero__copy"><div className="status-pill"><span /> Operação em andamento</div><h2>Entrega de {deliveryTitle}</h2><p>{currentOrders.length} pedidos estão confirmados. A demanda de compra foi gerada automaticamente e já pode ser dividida entre fornecedores.</p><div className="operation-hero__actions"><button className="light-button" onClick={() => navigate("operation")}><Truck size={18} />Abrir operação</button><button className="ghost-button" onClick={() => navigate("purchases")}>Ver demanda de compras<ArrowRight size={17} /></button></div></div>
         <div className="operation-steps" aria-label="Progresso da operação">
-          <div className="step step--done"><span><ClipboardList size={17} /></span><small>Pedidos</small><strong>{currentOrders.length} confirmados</strong></div><div className="step-line step-line--done" />
-          <div className="step step--current"><span><ShoppingBasket size={17} /></span><small>Compras</small><strong>Em andamento</strong></div><div className="step-line" />
-          <div className="step"><span><PackageCheck size={17} /></span><small>Conferência</small><strong>Aguardando</strong></div><div className="step-line" />
-          <div className="step"><span><Truck size={17} /></span><small>Carregamento</small><strong>Pendente</strong></div>
+          <div className={stageClass(0)}><span><ClipboardList size={17} /></span><small>Pedidos</small><strong>{stages[0] ? `${currentOrders.length} confirmados` : stageStatus(0)}</strong></div><div className={`step-line ${stages[0] ? "step-line--done" : ""}`} />
+          <div className={stageClass(1)}><span><ShoppingBasket size={17} /></span><small>Compras</small><strong>{stageStatus(1)}</strong></div><div className={`step-line ${stages[1] ? "step-line--done" : ""}`} />
+          <div className={stageClass(2)}><span><PackageCheck size={17} /></span><small>Conferência</small><strong>{stageStatus(2)}</strong></div><div className={`step-line ${stages[2] ? "step-line--done" : ""}`} />
+          <div className={stageClass(3)}><span><Truck size={17} /></span><small>Carregamento</small><strong>{stageStatus(3)}</strong></div>
         </div>
       </section>
       <section className="metrics-grid">
@@ -283,14 +288,15 @@ function OrdersPage({ orders, saved, startNewOrder, editOrder, updatePayment, up
   );
 }
 
-function OperationPage({ orders, editOrder, selectedDate, setSelectedDate, allocations }: { orders: Order[]; editOrder: (order: Order) => void; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[] }) {
+function OperationPage({ orders, editOrder, selectedDate, setSelectedDate, allocations, operationStages, setOperationStages }: { orders: Order[]; editOrder: (order: Order) => void; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; operationStages: OperationStagesByDate; setOperationStages: Dispatch<SetStateAction<OperationStagesByDate>> }) {
   const currentOrders = orders.filter((order) => order.deliveryDate === selectedDate);
-  const [stages, setStages] = useState([true, false, false, false]);
+  const stages = operationStages[selectedDate] ?? [currentOrders.length > 0, false, false, false];
+  const toggleStage = (index: number) => setOperationStages((current) => ({ ...current, [selectedDate]: stages.map((value, stageIndex) => stageIndex === index ? !value : value) }));
   return (
     <>
       <PageTitle eyebrow={`ENTREGA · ${dateLabel(selectedDate)}`} title="Operação do dia" description="Do pedido recebido até a conferência final do carregamento." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="primary-button" onClick={() => printLoadSheet(currentOrders, allocations)} disabled={!currentOrders.length}><Printer size={17} />Imprimir folha do CEASA</button></div>} />
       <section className="operation-summary-grid"><article className="panel operation-progress-card"><div className="status-pill status-pill--light"><span /> Operação em andamento</div><h2>{stages.filter(Boolean).length} de 4 etapas concluídas</h2><p>A separação funciona como conferência: se algo faltar, o pedido pode ser editado antes do carregamento.</p><div className="big-progress"><span style={{ width: `${stages.filter(Boolean).length * 25}%` }} /></div><small>{stages.filter(Boolean).length * 25}% concluído</small></article><article className="panel route-card"><div className="metric-icon metric-icon--orange"><Route size={21} /></div><div><small>Folha operacional</small><strong>{currentOrders.length} pedidos · {new Set(currentOrders.map((order) => order.customer)).size} clientes</strong><span>Totais por produto, fornecedor e cliente</span></div><button className="square-button" aria-label="Imprimir folha" disabled={!currentOrders.length} onClick={() => printLoadSheet(currentOrders, allocations)}><Printer size={17} /></button></article></section>
-      <section className="operation-board">{[{ icon: ClipboardCheck, title: "Pedidos recebidos", detail: `${currentOrders.length} confirmados` }, { icon: ShoppingBasket, title: "Compras", detail: "Distribuir por fornecedor" }, { icon: PackageCheck, title: "Separação e conferência", detail: "Confirmar faltas e pesos" }, { icon: Truck, title: "Carregamento", detail: "Conferir antes da saída" }].map((stage, index) => <button className={`operation-stage ${stages[index] ? "operation-stage--done" : ""}`} onClick={() => setStages((current) => current.map((value, stageIndex) => stageIndex === index ? !value : value))} key={stage.title}><span className="stage-check">{stages[index] ? <Check size={17} /> : index + 1}</span><stage.icon size={22} /><div><strong>{stage.title}</strong><small>{stage.detail}</small></div><ChevronRight size={18} /></button>)}</section>
+      <section className="operation-board">{[{ icon: ClipboardCheck, title: "Pedidos recebidos", detail: `${currentOrders.length} confirmados` }, { icon: ShoppingBasket, title: "Compras", detail: "Distribuir por fornecedor" }, { icon: PackageCheck, title: "Separação e conferência", detail: "Confirmar faltas e pesos" }, { icon: Truck, title: "Carregamento", detail: "Conferir antes da saída" }].map((stage, index) => <button className={`operation-stage ${stages[index] ? "operation-stage--done" : ""}`} onClick={() => toggleStage(index)} key={stage.title}><span className="stage-check">{stages[index] ? <Check size={17} /> : index + 1}</span><stage.icon size={22} /><div><strong>{stage.title}</strong><small>{stage.detail}</small></div><ChevronRight size={18} /></button>)}</section>
       <section className="panel operation-orders"><div className="panel__header"><div><h3>Pedidos para separar e carregar</h3><p>Imprima individualmente ou edite quando faltar algum produto.</p></div></div>{currentOrders.map((order) => <div className="operation-order-row" key={order.number}><span className="sequence-number">{order.number.replace("#", "")}</span><div><strong>{order.customer}</strong><small>{order.items.length} produtos · {money(orderTotal(order))}</small></div><b>{order.status}</b><button className="secondary-button" onClick={() => printOrder(order)}><Printer size={15} />Folha individual</button><button className="square-button" aria-label={`Editar ${order.number}`} onClick={() => editOrder(order)}><Edit3 size={16} /></button></div>)}</section>
     </>
   );
@@ -387,6 +393,11 @@ const makeInitialAllocations = (orders: Order[]): PurchaseAllocation[] => {
   return Array.from(grouped.values()).map((line, index) => ({ id: `allocation-${line.deliveryDate}-${line.productId}`, deliveryDate: line.deliveryDate, productId: line.productId, supplierId: suppliers[index % suppliers.length].id, quantity: line.quantity, unitCost: products.find((product) => product.id === line.productId)?.costReference ?? 0 }));
 };
 
+const makeInitialOperationStages = (orders: Order[]): OperationStagesByDate => {
+  const currentDate = defaultOperationDate(orders);
+  return Object.fromEntries(Array.from(new Set(orders.map((order) => order.deliveryDate))).map((date) => [date, date < currentDate ? [true, true, true, true] : [true, false, false, false]]));
+};
+
 function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [view, setView] = useState<ViewId>(viewFromHash);
@@ -396,6 +407,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [selectedDate, setSelectedDate] = useState(() => defaultOperationDate(initialOrders));
   const [allocations, setAllocations] = useState<PurchaseAllocation[]>(() => makeInitialAllocations(initialOrders));
+  const [operationStages, setOperationStages] = useState<OperationStagesByDate>(() => makeInitialOperationStages(initialOrders));
 
   useEffect(() => { document.documentElement.dataset.theme = theme; try { window.localStorage.setItem("zeca-hortifruti-theme", theme); } catch (_) { /* preference remains active for this session */ } }, [theme]);
   useEffect(() => { const handleHash = () => setView(viewFromHash()); window.addEventListener("hashchange", handleHash); if (!window.location.hash) window.history.replaceState(null, "", "#/inicio"); return () => window.removeEventListener("hashchange", handleHash); }, []);
@@ -407,10 +419,10 @@ function App() {
   const updatePaymentMethod = (number: string, method: PaymentMethod) => setOrders((current) => current.map((order) => order.number === number ? { ...order, paymentMethod: method } : order));
   const nextOrderNumber = `#${Math.max(...orders.map((order) => Number(order.number.replace(/\D/g, "")) || 0), 1048) + 1}`;
   let content: ReactNode;
-  if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} />;
+  if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} />;
   else if (view === "order-form") content = <OrderForm key={editingOrder?.number ?? "new-order"} order={editingOrder} nextNumber={nextOrderNumber} navigate={navigate} onSave={saveOrder} />;
   else if (view === "orders") content = <OrdersPage orders={orders} saved={savedOrder} startNewOrder={startNewOrder} editOrder={editOrder} updatePayment={updatePayment} updatePaymentMethod={updatePaymentMethod} />;
-  else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} />;
+  else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} setOperationStages={setOperationStages} />;
   else if (view === "purchases") content = <PurchasesPage orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} setAllocations={setAllocations} />;
   else content = <RegistryPage key={view} type={view} />;
   return (

@@ -15,7 +15,7 @@ Protótipo navegável do sistema operacional da Zeca Hortifruti. Esta versão fo
 - cadastros completos e editáveis de clientes, produtos e fornecedores;
 - busca de produtos por nome ou número na inclusão do pedido;
 - produtos com custo e venda de referência, sem controle de estoque;
-- acompanhamento da operação: pedidos, compras, conferência e carregamento;
+- acompanhamento independente por data da operação: pedidos, compras, conferência e carregamento;
 - navegação adaptada para computador e celular.
 
 ## Executar localmente
