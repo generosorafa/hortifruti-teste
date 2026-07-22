@@ -7,11 +7,14 @@ Protótipo navegável do sistema operacional da Zeca Hortifruti. Esta versão fo
 ## O que já pode ser avaliado
 
 - painel da próxima entrega;
-- inclusão demonstrativa de pedidos;
-- lista e filtros de pedidos;
-- acompanhamento da operação do dia;
-- lista de compras interativa;
-- cadastros demonstrativos de clientes, produtos e fornecedores;
+- inclusão manual ou por texto copiado do WhatsApp;
+- edição posterior, ajustes, observações e controle de recebimentos;
+- impressão individual dos pedidos e da folha operacional do CEASA;
+- demanda automática de compras e divisão entre vários fornecedores;
+- histórico demonstrativo de vendas, compras, recebimentos e pagamentos;
+- cadastros editáveis de clientes, produtos e fornecedores;
+- produtos com custo e venda de referência, sem controle de estoque;
+- acompanhamento da operação: pedidos, compras, conferência e carregamento;
 - navegação adaptada para computador e celular.
 
 ## Executar localmente
