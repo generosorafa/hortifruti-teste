@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedInWithVerifiedEmail() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+
+    function authorizationPath() {
+      return /databases/$(database)/documents/authorizedUsers/$(request.auth.uid);
+    }
+
+    function isAuthorized() {
+      return signedInWithVerifiedEmail()
+        && exists(authorizationPath())
+        && get(authorizationPath()).data.active == true
+        && get(authorizationPath()).data.email == request.auth.token.email;
+    }
+
+    // O próprio usuário pode consultar somente sua autorização. A criação e a
+    // manutenção desta lista são feitas pelo Console do Firebase ou Admin SDK.
+    match /authorizedUsers/{userId} {
+      allow get: if signedInWithVerifiedEmail() && request.auth.uid == userId;
+      allow list, create, update, delete: if false;
+    }
+
+    match /clients/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    match /products/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    match /suppliers/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    match /orders/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    match /purchases/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    match /purchaseAllocations/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    match /operationDays/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Qualquer coleção não declarada acima permanece totalmente bloqueada.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

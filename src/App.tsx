@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   Leaf,
   ListFilter,
+  LogOut,
   Menu,
   MessageSquareText,
   Moon,
@@ -31,6 +32,7 @@ import {
   Route,
   Save,
   Search,
+  ShieldCheck,
   ShoppingBasket,
   Store,
   Sun,
@@ -41,12 +43,13 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { type Dispatch, type FormEvent, type ReactNode, type SetStateAction, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
-  clients,
+  clients as demoClients,
   downloadCsv,
   formatDate,
   initialOrders,
+  initialPurchases,
   money,
   orderSubtotal,
   orderTotal,
@@ -54,20 +57,39 @@ import {
   printLoadSheet,
   printOrder,
   printTableReport,
-  products,
-  suppliers,
+  products as demoProducts,
+  suppliers as demoSuppliers,
+  type Client,
   type Order,
+  type OperationDay,
   type OrderItem,
   type ParsedLine,
   type PaymentMethod,
   type PaymentStatus,
+  type Product,
   type PurchaseAllocation,
+  type PurchaseRecord,
+  type Supplier,
   type Unit,
 } from "./domain";
+import {
+  deleteFirestoreRecord,
+  firebaseConfigured,
+  observeAuth,
+  saveFirestoreRecord,
+  seedFirestore,
+  signInWithGoogle,
+  signOutFirebase,
+  subscribeToCollection,
+  verifyAuthorizedUser,
+  type AuthorizationResult,
+  type FirebaseUser,
+} from "./firebase";
 
 type ViewId = "dashboard" | "order-form" | "orders" | "operation" | "purchases" | "clients" | "products" | "suppliers";
 type Theme = "light" | "dark";
 type Navigate = (view: ViewId) => void;
+type OperationStagesByDate = Record<string, boolean[]>;
 
 const routes: Record<ViewId, string> = {
   dashboard: "inicio",
@@ -105,7 +127,59 @@ const getInitialTheme = (): Theme => {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 };
 
-function Sidebar({ open, close, current, navigate, startNewOrder }: { open: boolean; close: () => void; current: ViewId; navigate: Navigate; startNewOrder: () => void }) {
+function useSyncedCollection<T extends { id: string }>(collectionName: string, fallback: T[]) {
+  const [records, setRecords] = useState<T[]>(firebaseConfigured ? [] : fallback);
+  const [loading, setLoading] = useState(firebaseConfigured);
+  const [error, setError] = useState("");
+  useEffect(() => subscribeToCollection<T>(collectionName, fallback, (next) => { setRecords(next); setLoading(false); setError(""); }, (message) => { setError(message); setLoading(false); }), [collectionName]);
+  const upsert = (record: T) => {
+    setRecords((current) => current.some((candidate) => candidate.id === record.id) ? current.map((candidate) => candidate.id === record.id ? record : candidate) : [record, ...current]);
+    void saveFirestoreRecord(collectionName, record).catch((failure: Error) => setError(failure.message));
+  };
+  const remove = (id: string) => {
+    setRecords((current) => current.filter((candidate) => candidate.id !== id));
+    void deleteFirestoreRecord(collectionName, id).catch((failure: Error) => setError(failure.message));
+  };
+  return { records, setRecords, upsert, remove, loading, error };
+}
+
+function AccessScreen({ state, authorization, error, retry }: { state: "loading" | "signed-out" | "denied" | "error"; authorization?: AuthorizationResult; error?: string; retry: () => void }) {
+  const [copyLabel, setCopyLabel] = useState("Copiar UID");
+  const copyUid = async () => {
+    if (!authorization?.uid) return;
+    await navigator.clipboard.writeText(authorization.uid);
+    setCopyLabel("UID copiado");
+  };
+  return <main className="access-page"><section className="access-card"><div className="access-brand"><span><Leaf size={25} /></span><div><strong>ZECA</strong><small>HORTIFRUTI</small></div></div>{state === "loading" ? <><div className="access-icon"><ShieldCheck size={26} /></div><h1>Verificando acesso</h1><p>Aguarde enquanto confirmamos sua conta e autorização.</p></> : state === "signed-out" ? <><div className="access-icon"><ShieldCheck size={26} /></div><h1>Acesso restrito</h1><p>Entre com uma das contas Google autorizadas para acessar os dados da operação.</p><button className="google-button" onClick={() => void signInWithGoogle()}><span>G</span>Entrar com Google</button><small className="access-note">O login identifica o usuário; as regras do banco validam se ele está autorizado.</small></> : state === "denied" ? <><div className="access-icon access-icon--warning"><X size={26} /></div><h1>Conta ainda não autorizada</h1><p>{authorization?.reason}</p><div className="access-identity"><span>E-mail</span><strong>{authorization?.email || "Não informado"}</strong><span>UID para liberação</span><code>{authorization?.uid}</code></div><button className="secondary-button" onClick={copyUid}>{copyLabel}</button><button className="text-button" onClick={() => void signOutFirebase()}>Entrar com outra conta</button></> : <><div className="access-icon access-icon--warning"><X size={26} /></div><h1>Não foi possível validar o acesso</h1><p>{error || "Confira a configuração e as regras do Firebase."}</p><button className="primary-button" onClick={retry}>Tentar novamente</button><button className="text-button" onClick={() => void signOutFirebase()}>Sair</button></>}</section></main>;
+}
+
+function FirebaseGate() {
+  const [state, setState] = useState<"loading" | "signed-out" | "authorized" | "denied" | "error">(firebaseConfigured ? "loading" : "authorized");
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [authorization, setAuthorization] = useState<AuthorizationResult>();
+  const [error, setError] = useState("");
+  const validate = async (candidate: FirebaseUser) => {
+    setState("loading");
+    try {
+      const result = await verifyAuthorizedUser(candidate);
+      setAuthorization(result);
+      setState(result.authorized ? "authorized" : "denied");
+    } catch (failure) {
+      setError((failure as Error).message);
+      setState("error");
+    }
+  };
+  useEffect(() => observeAuth((candidate) => {
+    setUser(candidate);
+    if (!firebaseConfigured) setState("authorized");
+    else if (!candidate) setState("signed-out");
+    else void validate(candidate);
+  }), []);
+  if (state !== "authorized") return <AccessScreen state={state} authorization={authorization} error={error} retry={() => user ? void validate(user) : setState("signed-out")} />;
+  return <App firebaseUser={user} firebaseRole={authorization?.role ?? "demo"} />;
+}
+
+function Sidebar({ open, close, current, navigate, startNewOrder, firebaseUser, firebaseRole }: { open: boolean; close: () => void; current: ViewId; navigate: Navigate; startNewOrder: () => void; firebaseUser: FirebaseUser | null; firebaseRole: string }) {
   const select = (view: ViewId) => {
     if (view === "order-form") startNewOrder(); else navigate(view);
     close();
@@ -122,7 +196,7 @@ function Sidebar({ open, close, current, navigate, startNewOrder }: { open: bool
           <span className="nav-label nav-label--spaced">CADASTROS</span>
           {registrations.map(({ id, label, icon: Icon }) => <button className={`nav-item ${current === id ? "nav-item--active" : ""}`} onClick={() => select(id)} key={id} aria-current={current === id ? "page" : undefined}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
-        <button className="sidebar__account" aria-label="Abrir perfil"><span className="avatar">RG</span><span><strong>Rafael Generoso</strong><small>Administrador</small></span><ChevronDown size={16} /></button>
+        <button className="sidebar__account" aria-label={firebaseUser ? "Sair da conta" : "Perfil demonstrativo"} onClick={() => firebaseUser ? void signOutFirebase() : undefined}><span className="avatar">{firebaseUser?.displayName?.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "RG"}</span><span><strong>{firebaseUser?.displayName || "Rafael Generoso"}</strong><small>{firebaseUser ? firebaseRole === "admin" ? "Administrador" : "Operador" : "Demonstração"}</small></span>{firebaseUser ? <LogOut size={16} /> : <ChevronDown size={16} />}</button>
       </aside>
     </>
   );
@@ -161,9 +235,13 @@ const exportPeriodOptions = (dates: string[]) => {
   return { uniqueDates, months };
 };
 
-function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedDate, allocations }: { navigate: Navigate; startNewOrder: () => void; orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[] }) {
+function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedDate, allocations, operationStages, supplierCatalog }: { navigate: Navigate; startNewOrder: () => void; orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; operationStages: OperationStagesByDate; supplierCatalog: Supplier[] }) {
   const currentOrders = orders.filter((order) => order.deliveryDate === selectedDate);
   const deliveryTitle = new Intl.DateTimeFormat("pt-BR", { weekday: "long", timeZone: "UTC" }).format(new Date(`${selectedDate}T12:00:00Z`));
+  const stages = operationStages[selectedDate] ?? [currentOrders.length > 0, false, false, false];
+  const currentStage = stages.findIndex((completed) => !completed);
+  const stageClass = (index: number) => stages[index] ? "step step--done" : index === currentStage ? "step step--current" : "step";
+  const stageStatus = (index: number) => stages[index] ? "Concluído" : index === currentStage ? "Em andamento" : "Aguardando";
   const salesTotal = currentOrders.reduce((sum, order) => sum + orderTotal(order), 0);
   const receivable = orders.filter((order) => order.paymentStatus !== "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
   const debtors = orders.filter((order) => order.paymentStatus !== "Pago");
@@ -179,10 +257,10 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
       <section className="operation-hero">
         <div className="operation-hero__copy"><div className="status-pill"><span /> Operação em andamento</div><h2>Entrega de {deliveryTitle}</h2><p>{currentOrders.length} pedidos estão confirmados. A demanda de compra foi gerada automaticamente e já pode ser dividida entre fornecedores.</p><div className="operation-hero__actions"><button className="light-button" onClick={() => navigate("operation")}><Truck size={18} />Abrir operação</button><button className="ghost-button" onClick={() => navigate("purchases")}>Ver demanda de compras<ArrowRight size={17} /></button></div></div>
         <div className="operation-steps" aria-label="Progresso da operação">
-          <div className="step step--done"><span><ClipboardList size={17} /></span><small>Pedidos</small><strong>{currentOrders.length} confirmados</strong></div><div className="step-line step-line--done" />
-          <div className="step step--current"><span><ShoppingBasket size={17} /></span><small>Compras</small><strong>Em andamento</strong></div><div className="step-line" />
-          <div className="step"><span><PackageCheck size={17} /></span><small>Conferência</small><strong>Aguardando</strong></div><div className="step-line" />
-          <div className="step"><span><Truck size={17} /></span><small>Carregamento</small><strong>Pendente</strong></div>
+          <div className={stageClass(0)}><span><ClipboardList size={17} /></span><small>Pedidos</small><strong>{stages[0] ? `${currentOrders.length} confirmados` : stageStatus(0)}</strong></div><div className={`step-line ${stages[0] ? "step-line--done" : ""}`} />
+          <div className={stageClass(1)}><span><ShoppingBasket size={17} /></span><small>Compras</small><strong>{stageStatus(1)}</strong></div><div className={`step-line ${stages[1] ? "step-line--done" : ""}`} />
+          <div className={stageClass(2)}><span><PackageCheck size={17} /></span><small>Conferência</small><strong>{stageStatus(2)}</strong></div><div className={`step-line ${stages[2] ? "step-line--done" : ""}`} />
+          <div className={stageClass(3)}><span><Truck size={17} /></span><small>Carregamento</small><strong>{stageStatus(3)}</strong></div>
         </div>
       </section>
       <section className="metrics-grid">
@@ -195,13 +273,13 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
         <article className="panel orders-panel"><div className="panel__header"><div><h3>Pedidos da próxima entrega</h3><p>Data e situação financeira visíveis para evitar misturas</p></div><button className="text-button" onClick={() => navigate("orders")}>Ver todos<ArrowRight size={16} /></button></div><div className="dashboard-orders"><div className="dashboard-order-head"><span>Pedido</span><span>Data</span><span>Cliente</span><span>Total</span><span>Pagamento</span></div>{currentOrders.slice(0, 4).map((order) => <button onClick={() => navigate("orders")} key={order.number}><strong>{order.number}</strong><span>{formatDate(order.date)}</span><span>{order.customer}</span><b>{money(orderTotal(order))}</b><i className={`payment-badge payment-badge--${order.paymentStatus.toLowerCase()}`}>{order.paymentStatus}</i></button>)}</div></article>
         <article className="panel purchase-panel"><div className="panel__header"><div><h3>Demanda automática</h3><p>Maiores volumes da entrega</p></div><button className="square-button" aria-label="Abrir compras" onClick={() => navigate("purchases")}><ArrowRight size={17} /></button></div><div className="purchase-list">{Array.from(demand.values()).slice(0, 4).map((line, index) => <div className="purchase-item" key={line.name}><div><strong>{line.name}</strong><span>{line.quantity} {line.unit}</span></div><div className="progress"><span style={{ width: `${78 - index * 14}%` }} /></div></div>)}</div><button className="purchase-alert" onClick={() => navigate("orders")}><CreditCard size={19} /><span><strong>{debtors.length} pedidos aguardam pagamento</strong><small>Confira recebimentos e formas de pagamento.</small></span><ChevronRight size={18} /></button></article>
       </section>
-      <section className="quick-actions"><div className="section-heading"><h3>Acessos rápidos</h3><p>Continue de onde a operação precisa.</p></div><div className="quick-actions__grid"><button onClick={startNewOrder}><span><Plus size={20} /></span><div><strong>Novo pedido</strong><small>Colar texto ou inserir item a item</small></div><ChevronRight size={18} /></button><button onClick={() => printLoadSheet(currentOrders, allocations)}><span><Printer size={20} /></span><div><strong>Imprimir folha do CEASA</strong><small>Compra, separação e carregamento</small></div><ChevronRight size={18} /></button><button onClick={() => navigate("purchases")}><span><ShoppingBasket size={20} /></span><div><strong>Distribuir compras</strong><small>Escolher fornecedores e custos</small></div><ChevronRight size={18} /></button></div></section>
+      <section className="quick-actions"><div className="section-heading"><h3>Acessos rápidos</h3><p>Continue de onde a operação precisa.</p></div><div className="quick-actions__grid"><button onClick={startNewOrder}><span><Plus size={20} /></span><div><strong>Novo pedido</strong><small>Colar texto ou inserir item a item</small></div><ChevronRight size={18} /></button><button onClick={() => printLoadSheet(currentOrders, allocations, supplierCatalog)}><span><Printer size={20} /></span><div><strong>Imprimir folha do CEASA</strong><small>Compra, separação e carregamento</small></div><ChevronRight size={18} /></button><button onClick={() => navigate("purchases")}><span><ShoppingBasket size={20} /></span><div><strong>Distribuir compras</strong><small>Escolher fornecedores e custos</small></div><ChevronRight size={18} /></button></div></section>
     </>
   );
 }
 
-function OrderForm({ order, nextNumber, navigate, onSave }: { order?: Order; nextNumber: string; navigate: Navigate; onSave: (order: Order) => void }) {
-  const [customer, setCustomer] = useState(order?.customer ?? clients[0].name);
+function OrderForm({ order, nextNumber, navigate, onSave, catalogClients, catalogProducts }: { order?: Order; nextNumber: string; navigate: Navigate; onSave: (order: Order) => void; catalogClients: Client[]; catalogProducts: Product[] }) {
+  const [customer, setCustomer] = useState(order?.customer ?? catalogClients[0]?.name ?? "");
   const [date, setDate] = useState(order?.date ?? "2026-07-21");
   const [deliveryDate, setDeliveryDate] = useState(order?.deliveryDate ?? "2026-07-22");
   const [items, setItems] = useState<OrderItem[]>(order?.items ?? []);
@@ -216,11 +294,11 @@ function OrderForm({ order, nextNumber, navigate, onSave }: { order?: Order; nex
   const [parsedLines, setParsedLines] = useState<ParsedLine[]>([]);
   const matchingProducts = useMemo(() => {
     const query = normalizeSearch(manualQuery.trim());
-    return products.filter((product) => !query || normalizeSearch(`${product.code} ${product.name}`).includes(query)).slice(0, 12);
-  }, [manualQuery]);
+    return catalogProducts.filter((product) => !query || normalizeSearch(`${product.code} ${product.name}`).includes(query)).slice(0, 12);
+  }, [manualQuery, catalogProducts]);
 
   const addProduct = (productId: string, quantity = 1) => {
-    const product = products.find((candidate) => candidate.id === productId);
+    const product = catalogProducts.find((candidate) => candidate.id === productId);
     if (!product) return;
     setItems((current) => {
       const existing = current.find((line) => line.productId === productId);
@@ -229,7 +307,7 @@ function OrderForm({ order, nextNumber, navigate, onSave }: { order?: Order; nex
     });
   };
   const updateItem = (id: string, field: "quantity" | "unitPrice" | "confirmedWeight" | "unit", value: number | Unit) => setItems((current) => current.map((line) => line.id === id ? { ...line, [field]: value } : line));
-  const interpretText = () => setParsedLines(parseOrderText(pasteText));
+  const interpretText = () => setParsedLines(parseOrderText(pasteText, catalogProducts));
   const addParsedLines = () => {
     parsedLines.filter((line) => line.productId).forEach((line) => addProduct(line.productId, line.quantity));
     setParsedLines([]);
@@ -237,18 +315,19 @@ function OrderForm({ order, nextNumber, navigate, onSave }: { order?: Order; nex
   };
   const save = (event: FormEvent) => {
     event.preventDefault();
-    const saved: Order = { number: order?.number ?? nextNumber, date, deliveryDate, customer, items, adjustment, status: order?.status ?? "Confirmado", paymentStatus, paymentMethod, observation };
+    const number = order?.number ?? nextNumber;
+    const saved: Order = { id: order?.id ?? number.replace(/\D/g, ""), number, date, deliveryDate, customer, items, adjustment, status: order?.status ?? "Confirmado", paymentStatus, paymentMethod, observation };
     onSave(saved);
     navigate("orders");
   };
-  const draftOrder: Order = { number: order?.number ?? "Novo", date, deliveryDate, customer, items, adjustment, status: "Confirmado", paymentStatus, paymentMethod, observation };
+  const draftOrder: Order = { id: order?.id ?? "novo", number: order?.number ?? "Novo", date, deliveryDate, customer, items, adjustment, status: "Confirmado", paymentStatus, paymentMethod, observation };
   return (
     <>
       <PageTitle eyebrow={order ? `EDITANDO ${order.number}` : "NOVO PEDIDO"} title={order ? `Editar pedido de ${order.customer}` : "Incluir pedido"} description="Cole a mensagem do WhatsApp ou acrescente os produtos manualmente." action={<button className="secondary-button" onClick={() => navigate("orders")}><ArrowLeft size={17} />Voltar aos pedidos</button>} />
       <form className="form-layout order-form-layout" onSubmit={save}>
         <div className="order-form-main">
-          <section className="panel form-card"><div className="form-section-title"><span>1</span><div><h2>Cliente e datas</h2><p>A data fica visível também na lista de pedidos.</p></div></div><div className="form-grid"><label>Cliente<select value={customer} onChange={(event) => setCustomer(event.target.value)}>{clients.map((client) => <option key={client.id}>{client.name}</option>)}</select></label><label>Data do pedido<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Data da entrega<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label><label>Situação do pagamento<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div></section>
-          <section className="panel form-card import-card"><div className="form-section-title"><span>2</span><div><h2>Importar texto do WhatsApp</h2><p>Cole a mensagem do cliente, com um item por linha.</p></div></div><div className="paste-order"><div><MessageSquareText size={20} /><textarea aria-label="Texto do pedido recebido pelo WhatsApp" value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={6} /></div><button className="secondary-button" type="button" onClick={interpretText} disabled={!pasteText.trim()}><ClipboardCheck size={17} />Interpretar lista</button></div>{parsedLines.length > 0 && <div className="parsed-review"><div className="parsed-review__heading"><strong>Revise o que foi identificado</strong><span>Itens em amarelo precisam de confirmação.</span></div>{parsedLines.map((line) => <div className={line.needsReview ? "parsed-line parsed-line--review" : "parsed-line"} key={line.id}><span>{line.quantity}</span><code>{line.raw}</code><select aria-label={`Produto correspondente a ${line.raw}`} value={line.productId} onChange={(event) => setParsedLines((current) => current.map((candidate) => candidate.id === line.id ? { ...candidate, productId: event.target.value, needsReview: false } : candidate))}><option value="">Selecione o produto correto</option>{products.map((product) => <option value={product.id} key={product.id}>{product.code} · {product.name}</option>)}</select>{line.productId && !line.needsReview ? <CheckCircle2 size={18} /> : <span className="review-dot">!</span>}</div>)}<button className="primary-button" type="button" disabled={parsedLines.some((line) => !line.productId)} onClick={addParsedLines}><Plus size={17} />Adicionar itens revisados</button></div>}</section>
+          <section className="panel form-card"><div className="form-section-title"><span>1</span><div><h2>Cliente e datas</h2><p>A data fica visível também na lista de pedidos.</p></div></div><div className="form-grid"><label>Cliente<select value={customer} onChange={(event) => setCustomer(event.target.value)}>{catalogClients.map((client) => <option key={client.id}>{client.name}</option>)}</select></label><label>Data do pedido<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Data da entrega<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label><label>Situação do pagamento<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div></section>
+          <section className="panel form-card import-card"><div className="form-section-title"><span>2</span><div><h2>Importar texto do WhatsApp</h2><p>Cole a mensagem do cliente, com um item por linha.</p></div></div><div className="paste-order"><div><MessageSquareText size={20} /><textarea aria-label="Texto do pedido recebido pelo WhatsApp" value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={6} /></div><button className="secondary-button" type="button" onClick={interpretText} disabled={!pasteText.trim()}><ClipboardCheck size={17} />Interpretar lista</button></div>{parsedLines.length > 0 && <div className="parsed-review"><div className="parsed-review__heading"><strong>Revise o que foi identificado</strong><span>Itens em amarelo precisam de confirmação.</span></div>{parsedLines.map((line) => <div className={line.needsReview ? "parsed-line parsed-line--review" : "parsed-line"} key={line.id}><span>{line.quantity}</span><code>{line.raw}</code><select aria-label={`Produto correspondente a ${line.raw}`} value={line.productId} onChange={(event) => setParsedLines((current) => current.map((candidate) => candidate.id === line.id ? { ...candidate, productId: event.target.value, needsReview: false } : candidate))}><option value="">Selecione o produto correto</option>{catalogProducts.map((product) => <option value={product.id} key={product.id}>{product.code} · {product.name}</option>)}</select>{line.productId && !line.needsReview ? <CheckCircle2 size={18} /> : <span className="review-dot">!</span>}</div>)}<button className="primary-button" type="button" disabled={parsedLines.some((line) => !line.productId)} onClick={addParsedLines}><Plus size={17} />Adicionar itens revisados</button></div>}</section>
           <section className="panel form-card"><div className="form-section-title"><span>3</span><div><h2>Produtos do pedido</h2><p>Pesquise pelo nome ou número; a unidade vem do cadastro e continua editável.</p></div></div><div className="manual-add"><div className="product-combobox"><Search size={17} /><input role="combobox" aria-expanded={manualOpen} aria-controls="product-options" aria-label="Pesquisar produto" value={manualQuery} placeholder="Digite o nome ou número do produto" onFocus={() => setManualOpen(true)} onBlur={() => setTimeout(() => setManualOpen(false), 120)} onChange={(event) => { setManualQuery(event.target.value); setManualProductId(""); setManualOpen(true); }} />{manualOpen && <div className="product-options" id="product-options" role="listbox">{matchingProducts.length ? matchingProducts.map((product) => <button type="button" role="option" aria-selected={manualProductId === product.id} key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => { setManualProductId(product.id); setManualQuery(product.name); setManualOpen(false); }}><span><small>{product.code}</small><strong>{product.name}</strong></span><b>{money(product.saleReference)}/{product.unit}</b></button>) : <div className="product-option-empty">Nenhum produto cadastrado encontrado.</div>}</div>}</div><button className="secondary-button" type="button" disabled={!manualProductId} onClick={() => { addProduct(manualProductId); setManualProductId(""); setManualQuery(""); }}><Plus size={17} />Adicionar produto</button></div>{items.length ? <div className="line-editor"><div className="line-editor__head"><span>Produto</span><span>Qtd.</span><span>Un.</span><span>Valor unitário</span><span>Total</span><span>Peso conf.</span><span /></div>{items.map((line) => <div className="line-editor__row" key={line.id}><div><strong>{line.name}</strong><small>Referência do cadastro</small></div><DecimalInput ariaLabel={`Quantidade de ${line.name}`} value={line.quantity} onValueChange={(value) => updateItem(line.id, "quantity", value)} /><select aria-label={`Unidade de ${line.name}`} value={line.unit} onChange={(event) => updateItem(line.id, "unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select><DecimalInput ariaLabel={`Valor unitário de ${line.name}`} value={line.unitPrice} onValueChange={(value) => updateItem(line.id, "unitPrice", value)} /><strong>{money(line.quantity * line.unitPrice)}</strong><DecimalInput ariaLabel={`Peso conferido de ${line.name}`} value={line.confirmedWeight} placeholder="Depois" onValueChange={(value) => updateItem(line.id, "confirmedWeight", value)} /><button className="icon-button danger-icon" type="button" aria-label={`Remover ${line.name}`} onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== line.id))}><Trash2 size={17} /></button></div>)}</div> : <div className="empty-state"><PackageOpen size={24} /><strong>Nenhum produto incluído</strong><span>Cole a mensagem do cliente ou escolha um produto acima.</span></div>}</section>
         </div>
         <aside className="panel order-summary order-summary--complete"><h2>Resumo do pedido</h2><p>{order ? order.number : "Numeração automática ao salvar"}</p><div className="summary-client"><UsersRound size={18} /><div><small>Cliente</small><strong>{customer}</strong></div></div><div className="summary-figures"><div><span>Produtos</span><strong>{items.length}</strong></div><div><span>Subtotal</span><strong>{money(orderSubtotal(draftOrder))}</strong></div></div><label className="summary-field">Ajuste no valor total<DecimalInput ariaLabel="Ajuste no valor total" value={adjustment} allowNegative onValueChange={setAdjustment} /><small>Use valor positivo para acréscimo e negativo para desconto.</small></label><label className="summary-field">Forma de pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select></label><label className="summary-field">Observações<textarea rows={4} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Alterações, combinações e advertências..." /></label><div className="summary-total"><span>Total do pedido</span><strong>{money(orderTotal(draftOrder))}</strong></div><button className="primary-button primary-button--wide" type="submit" disabled={!items.length}><Save size={18} />{order ? "Salvar alterações" : "Finalizar pedido"}</button>{order && <button className="secondary-button print-summary-button" type="button" onClick={() => printOrder(draftOrder)}><Printer size={17} />Imprimir pedido</button>}<small className="summary-note">Demonstração: alterações ficam apenas nesta sessão.</small></aside>
@@ -283,20 +362,21 @@ function OrdersPage({ orders, saved, startNewOrder, editOrder, updatePayment, up
   );
 }
 
-function OperationPage({ orders, editOrder, selectedDate, setSelectedDate, allocations }: { orders: Order[]; editOrder: (order: Order) => void; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[] }) {
+function OperationPage({ orders, editOrder, selectedDate, setSelectedDate, allocations, operationStages, saveOperationStages, supplierCatalog }: { orders: Order[]; editOrder: (order: Order) => void; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; operationStages: OperationStagesByDate; saveOperationStages: (date: string, stages: boolean[]) => void; supplierCatalog: Supplier[] }) {
   const currentOrders = orders.filter((order) => order.deliveryDate === selectedDate);
-  const [stages, setStages] = useState([true, false, false, false]);
+  const stages = operationStages[selectedDate] ?? [currentOrders.length > 0, false, false, false];
+  const toggleStage = (index: number) => saveOperationStages(selectedDate, stages.map((value, stageIndex) => stageIndex === index ? !value : value));
   return (
     <>
-      <PageTitle eyebrow={`ENTREGA · ${dateLabel(selectedDate)}`} title="Operação do dia" description="Do pedido recebido até a conferência final do carregamento." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="primary-button" onClick={() => printLoadSheet(currentOrders, allocations)} disabled={!currentOrders.length}><Printer size={17} />Imprimir folha do CEASA</button></div>} />
-      <section className="operation-summary-grid"><article className="panel operation-progress-card"><div className="status-pill status-pill--light"><span /> Operação em andamento</div><h2>{stages.filter(Boolean).length} de 4 etapas concluídas</h2><p>A separação funciona como conferência: se algo faltar, o pedido pode ser editado antes do carregamento.</p><div className="big-progress"><span style={{ width: `${stages.filter(Boolean).length * 25}%` }} /></div><small>{stages.filter(Boolean).length * 25}% concluído</small></article><article className="panel route-card"><div className="metric-icon metric-icon--orange"><Route size={21} /></div><div><small>Folha operacional</small><strong>{currentOrders.length} pedidos · {new Set(currentOrders.map((order) => order.customer)).size} clientes</strong><span>Totais por produto, fornecedor e cliente</span></div><button className="square-button" aria-label="Imprimir folha" disabled={!currentOrders.length} onClick={() => printLoadSheet(currentOrders, allocations)}><Printer size={17} /></button></article></section>
-      <section className="operation-board">{[{ icon: ClipboardCheck, title: "Pedidos recebidos", detail: `${currentOrders.length} confirmados` }, { icon: ShoppingBasket, title: "Compras", detail: "Distribuir por fornecedor" }, { icon: PackageCheck, title: "Separação e conferência", detail: "Confirmar faltas e pesos" }, { icon: Truck, title: "Carregamento", detail: "Conferir antes da saída" }].map((stage, index) => <button className={`operation-stage ${stages[index] ? "operation-stage--done" : ""}`} onClick={() => setStages((current) => current.map((value, stageIndex) => stageIndex === index ? !value : value))} key={stage.title}><span className="stage-check">{stages[index] ? <Check size={17} /> : index + 1}</span><stage.icon size={22} /><div><strong>{stage.title}</strong><small>{stage.detail}</small></div><ChevronRight size={18} /></button>)}</section>
+      <PageTitle eyebrow={`ENTREGA · ${dateLabel(selectedDate)}`} title="Operação do dia" description="Do pedido recebido até a conferência final do carregamento." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="primary-button" onClick={() => printLoadSheet(currentOrders, allocations, supplierCatalog)} disabled={!currentOrders.length}><Printer size={17} />Imprimir folha do CEASA</button></div>} />
+      <section className="operation-summary-grid"><article className="panel operation-progress-card"><div className="status-pill status-pill--light"><span /> Operação em andamento</div><h2>{stages.filter(Boolean).length} de 4 etapas concluídas</h2><p>A separação funciona como conferência: se algo faltar, o pedido pode ser editado antes do carregamento.</p><div className="big-progress"><span style={{ width: `${stages.filter(Boolean).length * 25}%` }} /></div><small>{stages.filter(Boolean).length * 25}% concluído</small></article><article className="panel route-card"><div className="metric-icon metric-icon--orange"><Route size={21} /></div><div><small>Folha operacional</small><strong>{currentOrders.length} pedidos · {new Set(currentOrders.map((order) => order.customer)).size} clientes</strong><span>Totais por produto, fornecedor e cliente</span></div><button className="square-button" aria-label="Imprimir folha" disabled={!currentOrders.length} onClick={() => printLoadSheet(currentOrders, allocations, supplierCatalog)}><Printer size={17} /></button></article></section>
+      <section className="operation-board">{[{ icon: ClipboardCheck, title: "Pedidos recebidos", detail: `${currentOrders.length} confirmados` }, { icon: ShoppingBasket, title: "Compras", detail: "Distribuir por fornecedor" }, { icon: PackageCheck, title: "Separação e conferência", detail: "Confirmar faltas e pesos" }, { icon: Truck, title: "Carregamento", detail: "Conferir antes da saída" }].map((stage, index) => <button className={`operation-stage ${stages[index] ? "operation-stage--done" : ""}`} onClick={() => toggleStage(index)} key={stage.title}><span className="stage-check">{stages[index] ? <Check size={17} /> : index + 1}</span><stage.icon size={22} /><div><strong>{stage.title}</strong><small>{stage.detail}</small></div><ChevronRight size={18} /></button>)}</section>
       <section className="panel operation-orders"><div className="panel__header"><div><h3>Pedidos para separar e carregar</h3><p>Imprima individualmente ou edite quando faltar algum produto.</p></div></div>{currentOrders.map((order) => <div className="operation-order-row" key={order.number}><span className="sequence-number">{order.number.replace("#", "")}</span><div><strong>{order.customer}</strong><small>{order.items.length} produtos · {money(orderTotal(order))}</small></div><b>{order.status}</b><button className="secondary-button" onClick={() => printOrder(order)}><Printer size={15} />Folha individual</button><button className="square-button" aria-label={`Editar ${order.number}`} onClick={() => editOrder(order)}><Edit3 size={16} /></button></div>)}</section>
     </>
   );
 }
 
-function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, setAllocations }: { orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; setAllocations: Dispatch<SetStateAction<PurchaseAllocation[]>> }) {
+function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, products, suppliers, purchaseHistory, saveAllocation, deleteAllocation, savePurchase }: { orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; products: Product[]; suppliers: Supplier[]; purchaseHistory: PurchaseRecord[]; saveAllocation: (record: PurchaseAllocation) => void; deleteAllocation: (id: string) => void; savePurchase: (record: PurchaseRecord) => void }) {
   const [tab, setTab] = useState<"demand" | "history">("demand");
   const [historyPeriod, setHistoryPeriod] = useState("Todos");
   const [historySupplier, setHistorySupplier] = useState("Todos");
@@ -312,14 +392,11 @@ function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, set
     return Array.from(grouped.values());
   }, [currentOrders]);
   const currentAllocations = allocations.filter((allocation) => allocation.deliveryDate === selectedDate);
-  const addAllocation = (productId: string) => setAllocations((current) => [...current, { id: `allocation-${Date.now()}`, deliveryDate: selectedDate, productId, supplierId: suppliers[0].id, quantity: 0, unitCost: products.find((product) => product.id === productId)?.costReference ?? 0 }]);
-  const updateAllocation = (id: string, field: "supplierId" | "quantity" | "unitCost", value: string | number) => setAllocations((current) => current.map((allocation) => allocation.id === id ? { ...allocation, [field]: value } : allocation));
-  const [purchaseHistory, setPurchaseHistory] = useState([
-    { number: "C-208", date: "2026-07-21", supplier: "Sítio Boa Colheita", total: 1280, status: "Pendente" },
-    { number: "C-207", date: "2026-07-21", supplier: "Distribuidora Vale Verde", total: 2435, status: "Pago" },
-    { number: "C-206", date: "2026-07-20", supplier: "Cooperativa Nova Safra", total: 1860, status: "Parcial" },
-    { number: "C-205", date: "2026-07-19", supplier: "Sítio Boa Colheita", total: 940, status: "Pago" },
-  ]);
+  const addAllocation = (productId: string) => saveAllocation({ id: `allocation-${Date.now()}`, deliveryDate: selectedDate, productId, supplierId: suppliers[0]?.id ?? "", quantity: 0, unitCost: products.find((product) => product.id === productId)?.costReference ?? 0 });
+  const updateAllocation = (id: string, field: "supplierId" | "quantity" | "unitCost", value: string | number) => {
+    const allocation = allocations.find((candidate) => candidate.id === id);
+    if (allocation) saveAllocation({ ...allocation, [field]: value });
+  };
   const historyOptions = exportPeriodOptions(purchaseHistory.map((purchase) => purchase.date));
   const visiblePurchaseHistory = purchaseHistory.filter((purchase) => {
     const periodMatches = historyPeriod === "Todos" || (historyPeriod.startsWith("date:") ? purchase.date === historyPeriod.slice(5) : purchase.date.startsWith(historyPeriod.slice(6)));
@@ -330,22 +407,16 @@ function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, set
   const purchaseRows = visiblePurchaseHistory.map((purchase) => [purchase.number, formatDate(purchase.date), purchase.supplier, purchase.total.toFixed(2).replace(".", ","), purchase.status]);
   return (
     <>
-      <PageTitle eyebrow={`COMPRAS · ENTREGA ${dateLabel(selectedDate)}`} title="Compras" description="Demanda automática dos pedidos, divisão por fornecedor e histórico de pagamentos." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="secondary-button" onClick={() => printLoadSheet(currentOrders, allocations)} disabled={!currentOrders.length}><Printer size={17} />Imprimir folha operacional</button></div>} />
+      <PageTitle eyebrow={`COMPRAS · ENTREGA ${dateLabel(selectedDate)}`} title="Compras" description="Demanda automática dos pedidos, divisão por fornecedor e histórico de pagamentos." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="secondary-button" onClick={() => printLoadSheet(currentOrders, allocations, suppliers)} disabled={!currentOrders.length}><Printer size={17} />Imprimir folha operacional</button></div>} />
       <div className="page-tabs"><button className={tab === "demand" ? "page-tab--active" : ""} onClick={() => setTab("demand")}><ShoppingBasket size={17} />Demanda desta entrega</button><button className={tab === "history" ? "page-tab--active" : ""} onClick={() => setTab("history")}><ReceiptText size={17} />Histórico e pagamentos</button></div>
-      {tab === "demand" ? <><section className="summary-strip"><div><span>Produtos diferentes</span><strong>{demand.length}</strong></div><div><span>Custo planejado</span><strong>{money(allocatedCost)}</strong></div><div><span>Fornecedores usados</span><strong>{new Set(currentAllocations.filter((allocation) => allocation.quantity > 0).map((allocation) => allocation.supplierId)).size}</strong></div></section><section className="demand-list">{demand.map((line) => { const productAllocations = currentAllocations.filter((allocation) => allocation.productId === line.productId); const allocated = productAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0); return <article className="panel demand-card" key={line.productId}><div className="demand-card__summary"><div className="product-symbol"><PackageOpen size={19} /></div><div><strong>{line.name}</strong><span>{line.customers.join(" · ")}</span></div><div><small>Demanda total</small><b>{line.total} {line.unit}</b></div><div><small>Já distribuído</small><b className={allocated < line.total ? "warning-text" : "success-text"}>{allocated} {line.unit}</b></div></div><div className="allocation-list">{productAllocations.map((allocation) => <div className="allocation-row" key={allocation.id}><select aria-label={`Fornecedor de ${line.name}`} value={allocation.supplierId} onChange={(event) => updateAllocation(allocation.id, "supplierId", event.target.value)}>{suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.name}</option>)}</select><label>Quantidade<DecimalInput ariaLabel={`Quantidade comprada de ${line.name}`} value={allocation.quantity} onValueChange={(value) => updateAllocation(allocation.id, "quantity", value)} /></label><label>Custo por {line.unit}<DecimalInput ariaLabel={`Custo de ${line.name}`} value={allocation.unitCost} onValueChange={(value) => updateAllocation(allocation.id, "unitCost", value)} /></label><strong>{money(allocation.quantity * allocation.unitCost)}</strong><button className="icon-button danger-icon" aria-label="Remover divisão" onClick={() => setAllocations((current) => current.filter((candidate) => candidate.id !== allocation.id))}><Trash2 size={16} /></button></div>)}</div><button className="text-button add-allocation" onClick={() => addAllocation(line.productId)}><Plus size={16} />Comprar parte em outro fornecedor</button></article>; })}{!demand.length && <div className="panel empty-table">Não há pedidos para a data selecionada.</div>}</section></> : <><section className="summary-strip"><div><span>Compras exibidas</span><strong>{visiblePurchaseHistory.length}</strong></div><div><span>Total comprado</span><strong>{money(visiblePurchaseHistory.reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div><div className="summary-strip__warning"><span>A pagar</span><strong>{money(visiblePurchaseHistory.filter((purchase) => purchase.status !== "Pago").reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div></section><section className="panel list-panel"><div className="list-toolbar"><label className="compact-filter">Período<select value={historyPeriod} onChange={(event) => setHistoryPeriod(event.target.value)}><option>Todos</option><optgroup label="Meses">{historyOptions.months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{historyOptions.uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label><label className="compact-filter">Fornecedor<select value={historySupplier} onChange={(event) => setHistorySupplier(event.target.value)}><option>Todos</option>{Array.from(new Set(purchaseHistory.map((purchase) => purchase.supplier))).map((supplier) => <option key={supplier}>{supplier}</option>)}</select></label><div className="toolbar-spacer" /><button className="secondary-button" onClick={() => downloadCsv("compras-fornecedores.csv", purchaseHeaders, purchaseRows)}><Download size={16} />Excel (.csv)</button><button className="secondary-button" onClick={() => printTableReport("Relatório de compras", `${visiblePurchaseHistory.length} compra(s) exibida(s)`, purchaseHeaders, purchaseRows)}><FileText size={16} />PDF</button></div><div className="purchase-history"><div className="purchase-history__head"><span>Compra</span><span>Data</span><span>Fornecedor</span><span>Total</span><span>Pagamento</span><span /></div>{visiblePurchaseHistory.map((purchase) => <div key={purchase.number}><strong>{purchase.number}</strong><span>{formatDate(purchase.date)}</span><b>{purchase.supplier}</b><strong>{money(purchase.total)}</strong><select aria-label={`Pagamento da compra ${purchase.number}`} value={purchase.status} onChange={(event) => setPurchaseHistory((current) => current.map((candidate) => candidate.number === purchase.number ? { ...candidate, status: event.target.value } : candidate))}><option>Pendente</option><option>Parcial</option><option>Pago</option></select><button className="square-button" aria-label={`Abrir ${purchase.number}`}><ChevronRight size={16} /></button></div>)}</div>{!visiblePurchaseHistory.length && <div className="empty-table">Nenhuma compra encontrada com esses filtros.</div>}</section></>}
+      {tab === "demand" ? <><section className="summary-strip"><div><span>Produtos diferentes</span><strong>{demand.length}</strong></div><div><span>Custo planejado</span><strong>{money(allocatedCost)}</strong></div><div><span>Fornecedores usados</span><strong>{new Set(currentAllocations.filter((allocation) => allocation.quantity > 0).map((allocation) => allocation.supplierId)).size}</strong></div></section><section className="demand-list">{demand.map((line) => { const productAllocations = currentAllocations.filter((allocation) => allocation.productId === line.productId); const allocated = productAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0); return <article className="panel demand-card" key={line.productId}><div className="demand-card__summary"><div className="product-symbol"><PackageOpen size={19} /></div><div><strong>{line.name}</strong><span>{line.customers.join(" · ")}</span></div><div><small>Demanda total</small><b>{line.total} {line.unit}</b></div><div><small>Já distribuído</small><b className={allocated < line.total ? "warning-text" : "success-text"}>{allocated} {line.unit}</b></div></div><div className="allocation-list">{productAllocations.map((allocation) => <div className="allocation-row" key={allocation.id}><select aria-label={`Fornecedor de ${line.name}`} value={allocation.supplierId} onChange={(event) => updateAllocation(allocation.id, "supplierId", event.target.value)}>{suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.name}</option>)}</select><label>Quantidade<DecimalInput ariaLabel={`Quantidade comprada de ${line.name}`} value={allocation.quantity} onValueChange={(value) => updateAllocation(allocation.id, "quantity", value)} /></label><label>Custo por {line.unit}<DecimalInput ariaLabel={`Custo de ${line.name}`} value={allocation.unitCost} onValueChange={(value) => updateAllocation(allocation.id, "unitCost", value)} /></label><strong>{money(allocation.quantity * allocation.unitCost)}</strong><button className="icon-button danger-icon" aria-label="Remover divisão" onClick={() => deleteAllocation(allocation.id)}><Trash2 size={16} /></button></div>)}</div><button className="text-button add-allocation" onClick={() => addAllocation(line.productId)}><Plus size={16} />Comprar parte em outro fornecedor</button></article>; })}{!demand.length && <div className="panel empty-table">Não há pedidos para a data selecionada.</div>}</section></> : <><section className="summary-strip"><div><span>Compras exibidas</span><strong>{visiblePurchaseHistory.length}</strong></div><div><span>Total comprado</span><strong>{money(visiblePurchaseHistory.reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div><div className="summary-strip__warning"><span>A pagar</span><strong>{money(visiblePurchaseHistory.filter((purchase) => purchase.status !== "Pago").reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div></section><section className="panel list-panel"><div className="list-toolbar"><label className="compact-filter">Período<select value={historyPeriod} onChange={(event) => setHistoryPeriod(event.target.value)}><option>Todos</option><optgroup label="Meses">{historyOptions.months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{historyOptions.uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label><label className="compact-filter">Fornecedor<select value={historySupplier} onChange={(event) => setHistorySupplier(event.target.value)}><option>Todos</option>{Array.from(new Set(purchaseHistory.map((purchase) => purchase.supplier))).map((supplier) => <option key={supplier}>{supplier}</option>)}</select></label><div className="toolbar-spacer" /><button className="secondary-button" onClick={() => downloadCsv("compras-fornecedores.csv", purchaseHeaders, purchaseRows)}><Download size={16} />Excel (.csv)</button><button className="secondary-button" onClick={() => printTableReport("Relatório de compras", `${visiblePurchaseHistory.length} compra(s) exibida(s)`, purchaseHeaders, purchaseRows)}><FileText size={16} />PDF</button></div><div className="purchase-history"><div className="purchase-history__head"><span>Compra</span><span>Data</span><span>Fornecedor</span><span>Total</span><span>Pagamento</span><span /></div>{visiblePurchaseHistory.map((purchase) => <div key={purchase.number}><strong>{purchase.number}</strong><span>{formatDate(purchase.date)}</span><b>{purchase.supplier}</b><strong>{money(purchase.total)}</strong><select aria-label={`Pagamento da compra ${purchase.number}`} value={purchase.status} onChange={(event) => savePurchase({ ...purchase, status: event.target.value as PaymentStatus })}><option>Pendente</option><option>Parcial</option><option>Pago</option></select><button className="square-button" aria-label={`Abrir ${purchase.number}`}><ChevronRight size={16} /></button></div>)}</div>{!visiblePurchaseHistory.length && <div className="empty-table">Nenhuma compra encontrada com esses filtros.</div>}</section></>}
     </>
   );
 }
 
 type RegistryRecord = { id: string; name: string; contact: string; phone: string; address: string; city: string; observation: string; code: string; category: string; unit: Unit; cost: number; sale: number };
 
-function RegistryPage({ type }: { type: "clients" | "products" | "suppliers" }) {
-  const initialRecords: RegistryRecord[] = type === "clients"
-    ? clients.map((client) => ({ id: client.id, name: client.name, contact: client.contact, phone: client.phone, address: client.address, city: client.city, observation: client.observation, code: "", category: "", unit: "un", cost: 0, sale: 0 }))
-    : type === "products"
-      ? products.map((product) => ({ id: product.id, name: product.name, contact: "", phone: "", address: "", city: "", observation: "", code: product.code, category: product.category, unit: product.unit, cost: product.costReference, sale: product.saleReference }))
-      : suppliers.map((supplier) => ({ id: supplier.id, name: supplier.name, contact: supplier.contact, phone: supplier.phone, address: supplier.address, city: supplier.city, observation: supplier.observation, code: "", category: supplier.categories, unit: "un", cost: 0, sale: 0 }));
-  const [records, setRecords] = useState(initialRecords);
+function RegistryPage({ type, records, onSave, onDelete }: { type: "clients" | "products" | "suppliers"; records: RegistryRecord[]; onSave: (record: RegistryRecord) => void; onDelete: (id: string) => void }) {
   const [editing, setEditing] = useState<RegistryRecord | null>(null);
   const [query, setQuery] = useState("");
   const config = { clients: { title: "Clientes", description: "Empresas atendidas, contatos e histórico de pedidos.", button: "Novo cliente", icon: UserPlus }, products: { title: "Produtos", description: "Catálogo sem estoque, com custo e venda de referência.", button: "Novo produto", icon: Plus }, suppliers: { title: "Fornecedores", description: "Parceiros de compra, categorias e dias de entrega.", button: "Novo fornecedor", icon: Plus } }[type];
@@ -355,14 +426,14 @@ function RegistryPage({ type }: { type: "clients" | "products" | "suppliers" }) 
   const saveRecord = () => {
     if (!editing || !editing.name.trim()) return;
     const updated = { ...editing, name: editing.name.trim() };
-    setRecords((current) => current.some((record) => record.id === updated.id) ? current.map((record) => record.id === updated.id ? updated : record) : [updated, ...current]);
+    onSave(updated);
     setEditing(null);
   };
   return (
     <>
       <PageTitle eyebrow="CADASTROS" title={config.title} description={config.description} action={<button className="primary-button" onClick={() => openEditor()}><Icon size={18} />{config.button}</button>} />
       {editing && <section className="panel registry-editor"><div className="registry-editor__heading"><div><strong>{records.some((record) => record.id === editing.id) ? "Editar cadastro" : "Novo cadastro"}</strong><span>Preencha os dados operacionais que serão consultados nos pedidos.</span></div><button className="icon-button" aria-label="Fechar cadastro" onClick={() => setEditing(null)}><X size={18} /></button></div><div className="registry-editor__grid"><label className="registry-field registry-field--wide">{type === "products" ? "Produto" : type === "clients" ? "Nome do cliente" : "Nome do fornecedor"}<input value={editing.name} onChange={(event) => updateDraft("name", event.target.value)} autoFocus /></label>{type === "products" ? <><label className="registry-field">Número do produto<input value={editing.code} inputMode="numeric" onChange={(event) => updateDraft("code", event.target.value)} placeholder="Ex.: 010" /></label><label className="registry-field">Categoria<input value={editing.category} onChange={(event) => updateDraft("category", event.target.value)} /></label><label className="registry-field">Unidade<select value={editing.unit} onChange={(event) => updateDraft("unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select></label><label className="registry-field">Custo de referência<DecimalInput ariaLabel="Custo de referência" value={editing.cost} onValueChange={(value) => updateDraft("cost", value)} /></label><label className="registry-field">Venda de referência<DecimalInput ariaLabel="Venda de referência" value={editing.sale} onValueChange={(value) => updateDraft("sale", value)} /></label></> : <><label className="registry-field">Nome de contato<input value={editing.contact} onChange={(event) => updateDraft("contact", event.target.value)} /></label><label className="registry-field">Telefone<input value={editing.phone} inputMode="tel" onChange={(event) => updateDraft("phone", event.target.value)} /></label><label className="registry-field registry-field--wide">Endereço<input value={editing.address} onChange={(event) => updateDraft("address", event.target.value)} /></label><label className="registry-field">Cidade<input value={editing.city} onChange={(event) => updateDraft("city", event.target.value)} /></label><label className="registry-field registry-field--full">Observação<textarea rows={3} value={editing.observation} onChange={(event) => updateDraft("observation", event.target.value)} /></label></>}</div><div className="registry-editor__actions"><button className="secondary-button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" onClick={saveRecord} disabled={!editing.name.trim()}><Save size={17} />Salvar cadastro</button></div></section>}
-      <section className="panel list-panel"><div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Buscar ${config.title.toLowerCase()}...`} /></div><button className="secondary-button"><ListFilter size={16} />Ordenar</button></div><div className={`registry-cards registry-cards--${type}`}>{records.filter((record) => normalizeSearch(`${record.code} ${record.name} ${record.contact}`).includes(normalizeSearch(query.trim()))).map((record) => <article key={record.id}><div className="registry-card-icon">{type === "clients" ? <UsersRound size={20} /> : type === "products" ? <PackageOpen size={20} /> : <Store size={20} />}</div><div className="registry-card-copy">{type === "products" ? <><small>Nº {record.code || "—"} · {record.category || "Sem categoria"}</small><h3>{record.name}</h3><p>Unidade: {record.unit}</p><span>Sem controle de estoque</span><div className="reference-prices"><b>Custo: {money(record.cost)}</b><b>Venda: {money(record.sale)}</b></div></> : <><small>{record.contact || "Contato não informado"}</small><h3>{record.name}</h3><p>{record.phone || "Telefone não informado"}</p><span>{[record.address, record.city].filter(Boolean).join(" · ") || "Endereço não informado"}</span>{record.observation && <em>{record.observation}</em>}</>}</div><div className="registry-card-actions"><button aria-label={`Editar ${record.name}`} onClick={() => openEditor(record)}><Edit3 size={16} /></button><button className="danger-icon" aria-label={`Excluir ${record.name}`} onClick={() => setRecords((current) => current.filter((candidate) => candidate.id !== record.id))}><Trash2 size={16} /></button></div></article>)}</div></section>
+      <section className="panel list-panel"><div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Buscar ${config.title.toLowerCase()}...`} /></div><button className="secondary-button"><ListFilter size={16} />Ordenar</button></div><div className={`registry-cards registry-cards--${type}`}>{records.filter((record) => normalizeSearch(`${record.code} ${record.name} ${record.contact}`).includes(normalizeSearch(query.trim()))).map((record) => <article key={record.id}><div className="registry-card-icon">{type === "clients" ? <UsersRound size={20} /> : type === "products" ? <PackageOpen size={20} /> : <Store size={20} />}</div><div className="registry-card-copy">{type === "products" ? <><small>Nº {record.code || "—"} · {record.category || "Sem categoria"}</small><h3>{record.name}</h3><p>Unidade: {record.unit}</p><span>Sem controle de estoque</span><div className="reference-prices"><b>Custo: {money(record.cost)}</b><b>Venda: {money(record.sale)}</b></div></> : <><small>{record.contact || "Contato não informado"}</small><h3>{record.name}</h3><p>{record.phone || "Telefone não informado"}</p><span>{[record.address, record.city].filter(Boolean).join(" · ") || "Endereço não informado"}</span>{record.observation && <em>{record.observation}</em>}</>}</div><div className="registry-card-actions"><button aria-label={`Editar ${record.name}`} onClick={() => openEditor(record)}><Edit3 size={16} /></button><button className="danger-icon" aria-label={`Excluir ${record.name}`} onClick={() => onDelete(record.id)}><Trash2 size={16} /></button></div></article>)}</div></section>
     </>
   );
 }
@@ -384,42 +455,73 @@ const makeInitialAllocations = (orders: Order[]): PurchaseAllocation[] => {
     current.quantity += line.quantity;
     grouped.set(key, current);
   }));
-  return Array.from(grouped.values()).map((line, index) => ({ id: `allocation-${line.deliveryDate}-${line.productId}`, deliveryDate: line.deliveryDate, productId: line.productId, supplierId: suppliers[index % suppliers.length].id, quantity: line.quantity, unitCost: products.find((product) => product.id === line.productId)?.costReference ?? 0 }));
+  return Array.from(grouped.values()).map((line, index) => ({ id: `allocation-${line.deliveryDate}-${line.productId}`, deliveryDate: line.deliveryDate, productId: line.productId, supplierId: demoSuppliers[index % demoSuppliers.length].id, quantity: line.quantity, unitCost: demoProducts.find((product) => product.id === line.productId)?.costReference ?? 0 }));
 };
 
-function App() {
+const makeInitialOperationStages = (orders: Order[]): OperationStagesByDate => {
+  const currentDate = defaultOperationDate(orders);
+  return Object.fromEntries(Array.from(new Set(orders.map((order) => order.deliveryDate))).map((date) => [date, date < currentDate ? [true, true, true, true] : [true, false, false, false]]));
+};
+
+function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null; firebaseRole: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [view, setView] = useState<ViewId>(viewFromHash);
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [editingOrder, setEditingOrder] = useState<Order | undefined>();
   const [savedOrder, setSavedOrder] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [selectedDate, setSelectedDate] = useState(() => defaultOperationDate(initialOrders));
-  const [allocations, setAllocations] = useState<PurchaseAllocation[]>(() => makeInitialAllocations(initialOrders));
+  const [seeding, setSeeding] = useState(false);
+  const clientStore = useSyncedCollection<Client>("clients", demoClients);
+  const productStore = useSyncedCollection<Product>("products", demoProducts);
+  const supplierStore = useSyncedCollection<Supplier>("suppliers", demoSuppliers);
+  const orderStore = useSyncedCollection<Order>("orders", initialOrders);
+  const allocationStore = useSyncedCollection<PurchaseAllocation>("purchaseAllocations", makeInitialAllocations(initialOrders));
+  const purchaseStore = useSyncedCollection<PurchaseRecord>("purchases", initialPurchases);
+  const initialOperationDays = Object.entries(makeInitialOperationStages(initialOrders)).map(([date, stages]) => ({ id: date, date, stages }));
+  const operationStore = useSyncedCollection<OperationDay>("operationDays", initialOperationDays);
+  const orders = [...orderStore.records].sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number, undefined, { numeric: true }));
+  const allocations = allocationStore.records;
+  const operationStages: OperationStagesByDate = Object.fromEntries(operationStore.records.map((operation) => [operation.date, operation.stages]));
+  const dataLoading = [clientStore, productStore, supplierStore, orderStore, allocationStore, purchaseStore, operationStore].some((store) => store.loading);
+  const dataError = [clientStore, productStore, supplierStore, orderStore, allocationStore, purchaseStore, operationStore].map((store) => store.error).find(Boolean) ?? "";
+  const databaseEmpty = firebaseConfigured && !dataLoading && !clientStore.records.length && !productStore.records.length && !supplierStore.records.length && !orders.length;
 
   useEffect(() => { document.documentElement.dataset.theme = theme; try { window.localStorage.setItem("zeca-hortifruti-theme", theme); } catch (_) { /* preference remains active for this session */ } }, [theme]);
   useEffect(() => { const handleHash = () => setView(viewFromHash()); window.addEventListener("hashchange", handleHash); if (!window.location.hash) window.history.replaceState(null, "", "#/inicio"); return () => window.removeEventListener("hashchange", handleHash); }, []);
+  useEffect(() => { if (orders.length && !orders.some((order) => order.deliveryDate === selectedDate)) setSelectedDate(defaultOperationDate(orders)); }, [orders, selectedDate]);
   const navigate: Navigate = (next) => { setView(next); if (next !== "orders") setSavedOrder(false); window.history.pushState(null, "", `#/${routes[next]}`); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const startNewOrder = () => { setEditingOrder(undefined); navigate("order-form"); };
   const editOrder = (order: Order) => { setEditingOrder(order); navigate("order-form"); };
-  const saveOrder = (order: Order) => { setOrders((current) => [order, ...current.filter((item) => item.number !== order.number)]); setSavedOrder(true); setEditingOrder(order); };
-  const updatePayment = (number: string, status: PaymentStatus) => setOrders((current) => current.map((order) => order.number === number ? { ...order, paymentStatus: status } : order));
-  const updatePaymentMethod = (number: string, method: PaymentMethod) => setOrders((current) => current.map((order) => order.number === number ? { ...order, paymentMethod: method } : order));
-  const nextOrderNumber = `#${Math.max(...orders.map((order) => Number(order.number.replace(/\D/g, "")) || 0), 1048) + 1}`;
+  const saveOrder = (order: Order) => { orderStore.upsert(order); setSavedOrder(true); setEditingOrder(order); };
+  const updatePayment = (number: string, status: PaymentStatus) => { const order = orders.find((candidate) => candidate.number === number); if (order) orderStore.upsert({ ...order, paymentStatus: status }); };
+  const updatePaymentMethod = (number: string, method: PaymentMethod) => { const order = orders.find((candidate) => candidate.number === number); if (order) orderStore.upsert({ ...order, paymentMethod: method }); };
+  const saveOperationStages = (date: string, stages: boolean[]) => operationStore.upsert({ id: date, date, stages });
+  const seedDemo = async () => {
+    setSeeding(true);
+    try {
+      await seedFirestore({ clients: demoClients, products: demoProducts, suppliers: demoSuppliers, orders: initialOrders, purchaseAllocations: makeInitialAllocations(initialOrders), purchases: initialPurchases, operationDays: initialOperationDays });
+    } finally {
+      setSeeding(false);
+    }
+  };
+  const nextOrderNumber = `#${orders.length ? Math.max(...orders.map((order) => Number(order.number.replace(/\D/g, "")) || 0)) + 1 : 1}`;
   let content: ReactNode;
-  if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} />;
-  else if (view === "order-form") content = <OrderForm key={editingOrder?.number ?? "new-order"} order={editingOrder} nextNumber={nextOrderNumber} navigate={navigate} onSave={saveOrder} />;
+  if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} supplierCatalog={supplierStore.records} />;
+  else if (view === "order-form") content = <OrderForm key={editingOrder?.number ?? "new-order"} order={editingOrder} nextNumber={nextOrderNumber} navigate={navigate} onSave={saveOrder} catalogClients={clientStore.records} catalogProducts={productStore.records} />;
   else if (view === "orders") content = <OrdersPage orders={orders} saved={savedOrder} startNewOrder={startNewOrder} editOrder={editOrder} updatePayment={updatePayment} updatePaymentMethod={updatePaymentMethod} />;
-  else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} />;
-  else if (view === "purchases") content = <PurchasesPage orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} setAllocations={setAllocations} />;
-  else content = <RegistryPage key={view} type={view} />;
+  else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} saveOperationStages={saveOperationStages} supplierCatalog={supplierStore.records} />;
+  else if (view === "purchases") content = <PurchasesPage orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} products={productStore.records} suppliers={supplierStore.records} purchaseHistory={purchaseStore.records} saveAllocation={allocationStore.upsert} deleteAllocation={allocationStore.remove} savePurchase={purchaseStore.upsert} />;
+  else if (view === "clients") content = <RegistryPage key={view} type="clients" records={clientStore.records.map((client) => ({ id: client.id, name: client.name, contact: client.contact, phone: client.phone, address: client.address, city: client.city, observation: client.observation, code: "", category: "", unit: "un", cost: 0, sale: 0 }))} onSave={(record) => clientStore.upsert({ id: record.id, name: record.name, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, orders: clientStore.records.find((client) => client.id === record.id)?.orders ?? 0, status: "Ativo" })} onDelete={clientStore.remove} />;
+  else if (view === "products") content = <RegistryPage key={view} type="products" records={productStore.records.map((product) => ({ id: product.id, name: product.name, contact: "", phone: "", address: "", city: "", observation: "", code: product.code, category: product.category, unit: product.unit, cost: product.costReference, sale: product.saleReference }))} onSave={(record) => productStore.upsert({ id: record.id, code: record.code, name: record.name, category: record.category, unit: record.unit, costReference: record.cost, saleReference: record.sale, aliases: productStore.records.find((product) => product.id === record.id)?.aliases ?? [record.name] })} onDelete={productStore.remove} />;
+  else content = <RegistryPage key={view} type="suppliers" records={supplierStore.records.map((supplier) => ({ id: supplier.id, name: supplier.name, contact: supplier.contact, phone: supplier.phone, address: supplier.address, city: supplier.city, observation: supplier.observation, code: "", category: supplier.categories, unit: "un", cost: 0, sale: 0 }))} onSave={(record) => supplierStore.upsert({ id: record.id, name: record.name, categories: record.category, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, delivery: record.observation, rating: supplierStore.records.find((supplier) => supplier.id === record.id)?.rating ?? "Novo" })} onDelete={supplierStore.remove} />;
+  if (dataLoading) return <AccessScreen state="loading" retry={() => undefined} />;
   return (
     <div className="app-shell">
-      <Sidebar open={menuOpen} close={() => setMenuOpen(false)} current={view} navigate={navigate} startNewOrder={startNewOrder} />
-      <main className="main-content"><header className="topbar"><div className="topbar__left"><button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={21} /></button><div className="search-box"><Search size={18} /><input aria-label="Pesquisar" placeholder="Buscar pedido, cliente ou produto..." /><kbd>⌘ K</kbd></div></div><div className="topbar__actions"><button className="icon-button theme-button" type="button" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} aria-pressed={theme === "dark"} title={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button><button className="icon-button notification-button" aria-label="Notificações"><Bell size={20} /><span /></button><button className="primary-button" onClick={startNewOrder}><Plus size={18} />Novo pedido</button></div></header><div className="demo-banner" role="status"><Leaf size={15} /><strong>Ambiente demonstrativo</strong><span>Todos os nomes, valores e registros apresentados são fictícios.</span></div><div className="page">{content}</div></main>
+      <Sidebar open={menuOpen} close={() => setMenuOpen(false)} current={view} navigate={navigate} startNewOrder={startNewOrder} firebaseUser={firebaseUser} firebaseRole={firebaseRole} />
+      <main className="main-content"><header className="topbar"><div className="topbar__left"><button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={21} /></button><div className="search-box"><Search size={18} /><input aria-label="Pesquisar" placeholder="Buscar pedido, cliente ou produto..." /><kbd>⌘ K</kbd></div></div><div className="topbar__actions"><button className="icon-button theme-button" type="button" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} aria-pressed={theme === "dark"} title={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button><button className="icon-button notification-button" aria-label="Notificações"><Bell size={20} /><span /></button><button className="primary-button" onClick={startNewOrder}><Plus size={18} />Novo pedido</button></div></header>{firebaseConfigured ? <div className="secure-banner" role="status"><ShieldCheck size={15} /><strong>Ambiente protegido</strong><span>Login Google e dados sincronizados com o Firestore.</span></div> : <div className="demo-banner" role="status"><Leaf size={15} /><strong>Ambiente demonstrativo</strong><span>Configure o Firebase antes de inserir informações reais.</span></div>}{dataError && <div className="data-error" role="alert"><X size={15} /><strong>Falha ao sincronizar:</strong><span>{dataError}</span></div>}{databaseEmpty && <div className="database-empty"><div><strong>Banco conectado e vazio</strong><span>Você pode iniciar os cadastros do zero ou carregar os dados fictícios para validar o fluxo.</span></div><button className="secondary-button" disabled={seeding} onClick={() => void seedDemo()}>{seeding ? "Carregando..." : "Carregar dados demonstrativos"}</button></div>}<div className="page">{content}</div></main>
       <nav className="mobile-nav" aria-label="Navegação móvel"><button className={view === "dashboard" ? "mobile-nav__active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard size={21} /><span>Início</span></button><button className={view === "orders" ? "mobile-nav__active" : ""} onClick={() => navigate("orders")}><ClipboardList size={21} /><span>Pedidos</span></button><button className="mobile-create" aria-label="Novo pedido" onClick={startNewOrder}><Plus size={25} /></button><button className={view === "operation" ? "mobile-nav__active" : ""} onClick={() => navigate("operation")}><Truck size={21} /><span>Operação</span></button><button onClick={() => setMenuOpen(true)}><Menu size={21} /><span>Mais</span></button></nav>
     </div>
   );
 }
 
-export default App;
+export default FirebaseGate;
