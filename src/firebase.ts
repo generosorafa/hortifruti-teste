@@ -117,6 +117,20 @@ export const saveFirestoreRecord = async <T extends { id: string }>(collectionNa
   }, { merge: true });
 };
 
+export const saveFirestoreRecords = async <T extends { id: string }>(collectionName: string, records: T[]) => {
+  if (!firestoreDb || !records.length) return;
+  const currentUser = firebaseAuth?.currentUser;
+  for (let start = 0; start < records.length; start += 450) {
+    const batch = writeBatch(firestoreDb);
+    records.slice(start, start + 450).forEach((record) => batch.set(doc(firestoreDb, collectionName, record.id), {
+      ...record,
+      updatedAt: serverTimestamp(),
+      updatedBy: currentUser?.uid ?? "unknown",
+    }, { merge: true }));
+    await batch.commit();
+  }
+};
+
 export const deleteFirestoreRecord = async (collectionName: string, id: string) => {
   if (!firestoreDb) return;
   await deleteDoc(doc(firestoreDb, collectionName, id));

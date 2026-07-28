@@ -43,8 +43,9 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildPurchaseHistory,
   clients as demoClients,
   downloadCsv,
   formatDate,
@@ -54,8 +55,11 @@ import {
   orderSubtotal,
   orderTotal,
   parseOrderText,
+  parseProductList,
+  printLoadingSheet,
   printLoadSheet,
   printOrder,
+  printPurchaseSheet,
   printTableReport,
   products as demoProducts,
   suppliers as demoSuppliers,
@@ -77,6 +81,7 @@ import {
   firebaseConfigured,
   observeAuth,
   saveFirestoreRecord,
+  saveFirestoreRecords,
   seedFirestore,
   signInWithGoogle,
   signOutFirebase,
@@ -90,6 +95,7 @@ type ViewId = "dashboard" | "order-form" | "orders" | "operation" | "purchases" 
 type Theme = "light" | "dark";
 type Navigate = (view: ViewId) => void;
 type OperationStagesByDate = Record<string, boolean[]>;
+type GlobalSearchResult = { id: string; view: Exclude<ViewId, "dashboard" | "order-form" | "operation" | "purchases">; label: string; title: string; detail: string; query: string };
 
 const routes: Record<ViewId, string> = {
   dashboard: "inicio",
@@ -136,11 +142,20 @@ function useSyncedCollection<T extends { id: string }>(collectionName: string, f
     setRecords((current) => current.some((candidate) => candidate.id === record.id) ? current.map((candidate) => candidate.id === record.id ? record : candidate) : [record, ...current]);
     void saveFirestoreRecord(collectionName, record).catch((failure: Error) => setError(failure.message));
   };
+  const upsertMany = (nextRecords: T[]) => {
+    if (!nextRecords.length) return;
+    setRecords((current) => {
+      const merged = new Map(current.map((record) => [record.id, record]));
+      nextRecords.forEach((record) => merged.set(record.id, record));
+      return Array.from(merged.values());
+    });
+    void saveFirestoreRecords(collectionName, nextRecords).catch((failure: Error) => setError(failure.message));
+  };
   const remove = (id: string) => {
     setRecords((current) => current.filter((candidate) => candidate.id !== id));
     void deleteFirestoreRecord(collectionName, id).catch((failure: Error) => setError(failure.message));
   };
-  return { records, setRecords, upsert, remove, loading, error };
+  return { records, setRecords, upsert, upsertMany, remove, loading, error };
 }
 
 function AccessScreen({ state, authorization, error, retry }: { state: "loading" | "signed-out" | "denied" | "error"; authorization?: AuthorizationResult; error?: string; retry: () => void }) {
@@ -179,7 +194,19 @@ function FirebaseGate() {
   return <App firebaseUser={user} firebaseRole={authorization?.role ?? "demo"} />;
 }
 
-function Sidebar({ open, close, current, navigate, startNewOrder, firebaseUser, firebaseRole }: { open: boolean; close: () => void; current: ViewId; navigate: Navigate; startNewOrder: () => void; firebaseUser: FirebaseUser | null; firebaseRole: string }) {
+const localIsoDate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const addLocalDays = (value: string, days: number) => {
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return localIsoDate(date);
+};
+const compactDeliveryLabel = (value: string) => {
+  if (!value) return "Nenhuma entrega";
+  const label = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "long", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`)).replace(".", "");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+function Sidebar({ open, close, current, navigate, startNewOrder, firebaseUser, firebaseRole, nextDeliveryDate, openNextDelivery }: { open: boolean; close: () => void; current: ViewId; navigate: Navigate; startNewOrder: () => void; firebaseUser: FirebaseUser | null; firebaseRole: string; nextDeliveryDate: string; openNextDelivery: () => void }) {
   const select = (view: ViewId) => {
     if (view === "order-form") startNewOrder(); else navigate(view);
     close();
@@ -189,7 +216,7 @@ function Sidebar({ open, close, current, navigate, startNewOrder, firebaseUser, 
       {open && <button className="sidebar-backdrop" aria-label="Fechar menu" onClick={close} />}
       <aside className={`sidebar ${open ? "sidebar--open" : ""}`}>
         <div className="brand"><div className="brand__mark"><Leaf size={22} strokeWidth={2.4} /></div><div><strong>ZECA</strong><span>HORTIFRUTI</span></div><button className="icon-button sidebar__close" onClick={close} aria-label="Fechar menu"><X size={20} /></button></div>
-        <button className="operation-chip" onClick={() => select("operation")}><span className="operation-chip__dot" /><span><small>Próxima entrega</small><strong>Qua, 22 de julho</strong></span><ChevronRight size={16} /></button>
+        <button className="operation-chip" onClick={() => { openNextDelivery(); close(); }}><span className="operation-chip__dot" /><span><small>Próxima entrega</small><strong>{compactDeliveryLabel(nextDeliveryDate)}</strong></span><ChevronRight size={16} /></button>
         <nav className="sidebar__nav" aria-label="Menu principal">
           <span className="nav-label">OPERAÇÃO</span>
           {navigation.map(({ id, label, icon: Icon }) => <button className={`nav-item ${current === id ? "nav-item--active" : ""}`} onClick={() => select(id)} key={id} aria-current={current === id ? "page" : undefined}><Icon size={19} /><span>{label}</span></button>)}
@@ -235,7 +262,7 @@ const exportPeriodOptions = (dates: string[]) => {
   return { uniqueDates, months };
 };
 
-function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedDate, allocations, operationStages, supplierCatalog }: { navigate: Navigate; startNewOrder: () => void; orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; operationStages: OperationStagesByDate; supplierCatalog: Supplier[] }) {
+function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedDate, allocations, operationStages, supplierCatalog, purchaseHistory }: { navigate: Navigate; startNewOrder: () => void; orders: Order[]; selectedDate: string; setSelectedDate: (date: string) => void; allocations: PurchaseAllocation[]; operationStages: OperationStagesByDate; supplierCatalog: Supplier[]; purchaseHistory: PurchaseRecord[] }) {
   const currentOrders = orders.filter((order) => order.deliveryDate === selectedDate);
   const deliveryTitle = new Intl.DateTimeFormat("pt-BR", { weekday: "long", timeZone: "UTC" }).format(new Date(`${selectedDate}T12:00:00Z`));
   const stages = operationStages[selectedDate] ?? [currentOrders.length > 0, false, false, false];
@@ -245,12 +272,15 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
   const salesTotal = currentOrders.reduce((sum, order) => sum + orderTotal(order), 0);
   const receivable = orders.filter((order) => order.paymentStatus !== "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
   const debtors = orders.filter((order) => order.paymentStatus !== "Pago");
+  const supplierDebts = purchaseHistory.filter((purchase) => purchase.status !== "Pago");
+  const payable = supplierDebts.reduce((sum, purchase) => sum + purchase.total, 0);
   const demand = new Map<string, { name: string; quantity: number; unit: Unit }>();
   currentOrders.forEach((order) => order.items.forEach((line) => {
     const current = demand.get(line.productId) ?? { name: line.name, quantity: 0, unit: line.unit };
     current.quantity += line.quantity;
     demand.set(line.productId, current);
   }));
+  const mainVolumes = Array.from(demand.values()).sort((left, right) => right.quantity - left.quantity).slice(0, 8);
   return (
     <>
       <PageTitle eyebrow={`OPERAÇÃO · ${dateLabel(selectedDate)}`} title="Visão geral da operação" description="Pedidos, compras, carregamento e valores pendentes em um só lugar." action={<OperationDate value={selectedDate} onChange={setSelectedDate} />} />
@@ -270,8 +300,18 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
         <article className="metric-card"><div className="metric-icon metric-icon--violet"><UsersRound size={20} /></div><div><span>Clientes na entrega</span><strong>{new Set(currentOrders.map((order) => order.customer)).size}</strong><small>Folhas individuais prontas</small></div></article>
       </section>
       <section className="content-grid">
-        <article className="panel orders-panel"><div className="panel__header"><div><h3>Pedidos da próxima entrega</h3><p>Data e situação financeira visíveis para evitar misturas</p></div><button className="text-button" onClick={() => navigate("orders")}>Ver todos<ArrowRight size={16} /></button></div><div className="dashboard-orders"><div className="dashboard-order-head"><span>Pedido</span><span>Data</span><span>Cliente</span><span>Total</span><span>Pagamento</span></div>{currentOrders.slice(0, 4).map((order) => <button onClick={() => navigate("orders")} key={order.number}><strong>{order.number}</strong><span>{formatDate(order.date)}</span><span>{order.customer}</span><b>{money(orderTotal(order))}</b><i className={`payment-badge payment-badge--${order.paymentStatus.toLowerCase()}`}>{order.paymentStatus}</i></button>)}</div></article>
-        <article className="panel purchase-panel"><div className="panel__header"><div><h3>Demanda automática</h3><p>Maiores volumes da entrega</p></div><button className="square-button" aria-label="Abrir compras" onClick={() => navigate("purchases")}><ArrowRight size={17} /></button></div><div className="purchase-list">{Array.from(demand.values()).slice(0, 4).map((line, index) => <div className="purchase-item" key={line.name}><div><strong>{line.name}</strong><span>{line.quantity} {line.unit}</span></div><div className="progress"><span style={{ width: `${78 - index * 14}%` }} /></div></div>)}</div><button className="purchase-alert" onClick={() => navigate("orders")}><CreditCard size={19} /><span><strong>{debtors.length} pedidos aguardam pagamento</strong><small>Confira recebimentos e formas de pagamento.</small></span><ChevronRight size={18} /></button></article>
+        <article className="panel orders-panel">
+          <div className="panel__header"><div><h3>Pedidos da próxima entrega</h3><p>Todos os pedidos do dia; role dentro da lista para ver mais.</p></div><button className="text-button" onClick={() => navigate("orders")}>Ver todos<ArrowRight size={16} /></button></div>
+          <div className="dashboard-orders"><div className="dashboard-order-head"><span>Pedido</span><span>Data</span><span>Cliente</span><span>Total</span><span>Pagamento</span></div>{currentOrders.map((order) => <button onClick={() => navigate("orders")} key={order.number}><strong>{order.number}</strong><span>{formatDate(order.date)}</span><span>{order.customer}</span><b>{money(orderTotal(order))}</b><i className={`payment-badge payment-badge--${order.paymentStatus.toLowerCase()}`}>{order.paymentStatus}</i></button>)}{!currentOrders.length && <div className="dashboard-empty">Nenhum pedido nesta entrega.</div>}</div>
+        </article>
+        <article className="panel purchase-panel">
+          <div className="panel__header"><div><h3>Demanda automática</h3><p>8 maiores volumes da entrega</p></div><button className="square-button" aria-label="Abrir compras" onClick={() => navigate("purchases")}><ArrowRight size={17} /></button></div>
+          <div className="purchase-list">{mainVolumes.map((line, index) => <div className="purchase-item" key={line.name}><div><strong>{line.name}</strong><span>{line.quantity} {line.unit}</span></div><div className="progress"><span style={{ width: `${Math.max(24, 94 - index * 9)}%` }} /></div></div>)}{!mainVolumes.length && <div className="dashboard-empty">Nenhum volume para esta entrega.</div>}</div>
+        </article>
+      </section>
+      <section className="financial-reminders" aria-label="Pendências financeiras">
+        <button className="financial-reminder" onClick={() => navigate("orders")}><span className="metric-icon metric-icon--orange"><CreditCard size={19} /></span><div><small>Clientes</small><strong>{debtors.length} pedidos aguardam pagamento</strong><b>{money(receivable)} a receber</b></div><ChevronRight size={18} /></button>
+        <button className="financial-reminder" onClick={() => navigate("purchases")}><span className="metric-icon metric-icon--violet"><CircleDollarSign size={19} /></span><div><small>Fornecedores</small><strong>{supplierDebts.length} compras aguardam pagamento</strong><b>{money(payable)} a pagar</b></div><ChevronRight size={18} /></button>
       </section>
       <section className="quick-actions"><div className="section-heading"><h3>Acessos rápidos</h3><p>Continue de onde a operação precisa.</p></div><div className="quick-actions__grid"><button onClick={startNewOrder}><span><Plus size={20} /></span><div><strong>Novo pedido</strong><small>Colar texto ou inserir item a item</small></div><ChevronRight size={18} /></button><button onClick={() => printLoadSheet(currentOrders, allocations, supplierCatalog)}><span><Printer size={20} /></span><div><strong>Imprimir folha do CEASA</strong><small>Compra, separação e carregamento</small></div><ChevronRight size={18} /></button><button onClick={() => navigate("purchases")}><span><ShoppingBasket size={20} /></span><div><strong>Distribuir compras</strong><small>Escolher fornecedores e custos</small></div><ChevronRight size={18} /></button></div></section>
     </>
@@ -279,9 +319,10 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
 }
 
 function OrderForm({ order, nextNumber, navigate, onSave, catalogClients, catalogProducts }: { order?: Order; nextNumber: string; navigate: Navigate; onSave: (order: Order) => void; catalogClients: Client[]; catalogProducts: Product[] }) {
+  const today = localIsoDate();
   const [customer, setCustomer] = useState(order?.customer ?? catalogClients[0]?.name ?? "");
-  const [date, setDate] = useState(order?.date ?? "2026-07-21");
-  const [deliveryDate, setDeliveryDate] = useState(order?.deliveryDate ?? "2026-07-22");
+  const [date, setDate] = useState(order?.date ?? today);
+  const [deliveryDate, setDeliveryDate] = useState(order?.deliveryDate ?? addLocalDays(today, 1));
   const [items, setItems] = useState<OrderItem[]>(order?.items ?? []);
   const [adjustment, setAdjustment] = useState(order?.adjustment ?? 0);
   const [observation, setObservation] = useState(order?.observation ?? "");
@@ -326,26 +367,27 @@ function OrderForm({ order, nextNumber, navigate, onSave, catalogClients, catalo
       <PageTitle eyebrow={order ? `EDITANDO ${order.number}` : "NOVO PEDIDO"} title={order ? `Editar pedido de ${order.customer}` : "Incluir pedido"} description="Cole a mensagem do WhatsApp ou acrescente os produtos manualmente." action={<button className="secondary-button" onClick={() => navigate("orders")}><ArrowLeft size={17} />Voltar aos pedidos</button>} />
       <form className="form-layout order-form-layout" onSubmit={save}>
         <div className="order-form-main">
-          <section className="panel form-card"><div className="form-section-title"><span>1</span><div><h2>Cliente e datas</h2><p>A data fica visível também na lista de pedidos.</p></div></div><div className="form-grid"><label>Cliente<select value={customer} onChange={(event) => setCustomer(event.target.value)}>{catalogClients.map((client) => <option key={client.id}>{client.name}</option>)}</select></label><label>Data do pedido<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Data da entrega<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label><label>Situação do pagamento<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div></section>
+          <section className="panel form-card"><div className="form-section-title"><span>1</span><div><h2>Cliente e datas</h2><p>Em pedidos novos, usamos hoje como data do pedido e amanhã como entrega; ambas continuam editáveis.</p></div></div><div className="form-grid"><label>Cliente<select value={customer} onChange={(event) => setCustomer(event.target.value)}>{catalogClients.map((client) => <option key={client.id}>{client.name}</option>)}</select></label><label>Data do pedido<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Data da entrega<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label><label>Situação do pagamento<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div></section>
           <section className="panel form-card import-card"><div className="form-section-title"><span>2</span><div><h2>Importar texto do WhatsApp</h2><p>Cole a mensagem do cliente, com um item por linha.</p></div></div><div className="paste-order"><div><MessageSquareText size={20} /><textarea aria-label="Texto do pedido recebido pelo WhatsApp" value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={6} /></div><button className="secondary-button" type="button" onClick={interpretText} disabled={!pasteText.trim()}><ClipboardCheck size={17} />Interpretar lista</button></div>{parsedLines.length > 0 && <div className="parsed-review"><div className="parsed-review__heading"><strong>Revise o que foi identificado</strong><span>Itens em amarelo precisam de confirmação.</span></div>{parsedLines.map((line) => <div className={line.needsReview ? "parsed-line parsed-line--review" : "parsed-line"} key={line.id}><span>{line.quantity}</span><code>{line.raw}</code><select aria-label={`Produto correspondente a ${line.raw}`} value={line.productId} onChange={(event) => setParsedLines((current) => current.map((candidate) => candidate.id === line.id ? { ...candidate, productId: event.target.value, needsReview: false } : candidate))}><option value="">Selecione o produto correto</option>{catalogProducts.map((product) => <option value={product.id} key={product.id}>{product.code} · {product.name}</option>)}</select>{line.productId && !line.needsReview ? <CheckCircle2 size={18} /> : <span className="review-dot">!</span>}</div>)}<button className="primary-button" type="button" disabled={parsedLines.some((line) => !line.productId)} onClick={addParsedLines}><Plus size={17} />Adicionar itens revisados</button></div>}</section>
-          <section className="panel form-card"><div className="form-section-title"><span>3</span><div><h2>Produtos do pedido</h2><p>Pesquise pelo nome ou número; a unidade vem do cadastro e continua editável.</p></div></div><div className="manual-add"><div className="product-combobox"><Search size={17} /><input role="combobox" aria-expanded={manualOpen} aria-controls="product-options" aria-label="Pesquisar produto" value={manualQuery} placeholder="Digite o nome ou número do produto" onFocus={() => setManualOpen(true)} onBlur={() => setTimeout(() => setManualOpen(false), 120)} onChange={(event) => { setManualQuery(event.target.value); setManualProductId(""); setManualOpen(true); }} />{manualOpen && <div className="product-options" id="product-options" role="listbox">{matchingProducts.length ? matchingProducts.map((product) => <button type="button" role="option" aria-selected={manualProductId === product.id} key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => { setManualProductId(product.id); setManualQuery(product.name); setManualOpen(false); }}><span><small>{product.code}</small><strong>{product.name}</strong></span><b>{money(product.saleReference)}/{product.unit}</b></button>) : <div className="product-option-empty">Nenhum produto cadastrado encontrado.</div>}</div>}</div><button className="secondary-button" type="button" disabled={!manualProductId} onClick={() => { addProduct(manualProductId); setManualProductId(""); setManualQuery(""); }}><Plus size={17} />Adicionar produto</button></div>{items.length ? <div className="line-editor"><div className="line-editor__head"><span>Produto</span><span>Qtd.</span><span>Un.</span><span>Valor unitário</span><span>Total</span><span>Peso conf.</span><span /></div>{items.map((line) => <div className="line-editor__row" key={line.id}><div><strong>{line.name}</strong><small>Referência do cadastro</small></div><DecimalInput ariaLabel={`Quantidade de ${line.name}`} value={line.quantity} onValueChange={(value) => updateItem(line.id, "quantity", value)} /><select aria-label={`Unidade de ${line.name}`} value={line.unit} onChange={(event) => updateItem(line.id, "unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select><DecimalInput ariaLabel={`Valor unitário de ${line.name}`} value={line.unitPrice} onValueChange={(value) => updateItem(line.id, "unitPrice", value)} /><strong>{money(line.quantity * line.unitPrice)}</strong><DecimalInput ariaLabel={`Peso conferido de ${line.name}`} value={line.confirmedWeight} placeholder="Depois" onValueChange={(value) => updateItem(line.id, "confirmedWeight", value)} /><button className="icon-button danger-icon" type="button" aria-label={`Remover ${line.name}`} onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== line.id))}><Trash2 size={17} /></button></div>)}</div> : <div className="empty-state"><PackageOpen size={24} /><strong>Nenhum produto incluído</strong><span>Cole a mensagem do cliente ou escolha um produto acima.</span></div>}</section>
+          <section className="panel form-card"><div className="form-section-title"><span>3</span><div><h2>Produtos do pedido</h2><p>Pesquise pelo nome ou número; a unidade vem do cadastro e continua editável.</p></div></div><div className="manual-add"><div className="product-combobox"><Search size={17} /><input role="combobox" aria-expanded={manualOpen} aria-controls="product-options" aria-label="Pesquisar produto" value={manualQuery} placeholder="Digite o nome ou número do produto" onFocus={() => setManualOpen(true)} onBlur={() => setTimeout(() => setManualOpen(false), 120)} onChange={(event) => { setManualQuery(event.target.value); setManualProductId(""); setManualOpen(true); }} />{manualOpen && <div className="product-options" id="product-options" role="listbox">{matchingProducts.length ? matchingProducts.map((product) => <button type="button" role="option" aria-selected={manualProductId === product.id} key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => { setManualProductId(product.id); setManualQuery(product.name); setManualOpen(false); }}><span><small>{product.code}</small><strong>{product.name}</strong></span><b>{money(product.saleReference)}/{product.unit}</b></button>) : <div className="product-option-empty">Nenhum produto cadastrado encontrado.</div>}</div>}</div><button className="secondary-button" type="button" disabled={!manualProductId} onClick={() => { addProduct(manualProductId); setManualProductId(""); setManualQuery(""); }}><Plus size={17} />Adicionar produto</button></div>{items.length ? <div className="line-editor"><div className="line-editor__head"><span>Produto</span><span>Qtd.</span><span>Un.</span><span>Valor unitário</span><span>Total</span><span>Peso conf.</span><span /></div>{items.map((line) => <div className="line-editor__row" key={line.id}><div><strong>{line.name}</strong><small>Preço salvo neste pedido</small></div><DecimalInput ariaLabel={`Quantidade de ${line.name}`} value={line.quantity} onValueChange={(value) => updateItem(line.id, "quantity", value)} /><select aria-label={`Unidade de ${line.name}`} value={line.unit} onChange={(event) => updateItem(line.id, "unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select><DecimalInput ariaLabel={`Valor unitário de ${line.name}`} value={line.unitPrice} onValueChange={(value) => updateItem(line.id, "unitPrice", value)} /><strong>{money(line.quantity * line.unitPrice)}</strong><DecimalInput ariaLabel={`Peso conferido de ${line.name}`} value={line.confirmedWeight} placeholder="Depois" onValueChange={(value) => updateItem(line.id, "confirmedWeight", value)} /><button className="icon-button danger-icon" type="button" aria-label={`Remover ${line.name}`} onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== line.id))}><Trash2 size={17} /></button></div>)}</div> : <div className="empty-state"><PackageOpen size={24} /><strong>Nenhum produto incluído</strong><span>Cole a mensagem do cliente ou escolha um produto acima.</span></div>}</section>
         </div>
-        <aside className="panel order-summary order-summary--complete"><h2>Resumo do pedido</h2><p>{order ? order.number : "Numeração automática ao salvar"}</p><div className="summary-client"><UsersRound size={18} /><div><small>Cliente</small><strong>{customer}</strong></div></div><div className="summary-figures"><div><span>Produtos</span><strong>{items.length}</strong></div><div><span>Subtotal</span><strong>{money(orderSubtotal(draftOrder))}</strong></div></div><label className="summary-field">Ajuste no valor total<DecimalInput ariaLabel="Ajuste no valor total" value={adjustment} allowNegative onValueChange={setAdjustment} /><small>Use valor positivo para acréscimo e negativo para desconto.</small></label><label className="summary-field">Forma de pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select></label><label className="summary-field">Observações<textarea rows={4} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Alterações, combinações e advertências..." /></label><div className="summary-total"><span>Total do pedido</span><strong>{money(orderTotal(draftOrder))}</strong></div><button className="primary-button primary-button--wide" type="submit" disabled={!items.length}><Save size={18} />{order ? "Salvar alterações" : "Finalizar pedido"}</button>{order && <button className="secondary-button print-summary-button" type="button" onClick={() => printOrder(draftOrder)}><Printer size={17} />Imprimir pedido</button>}<small className="summary-note">Demonstração: alterações ficam apenas nesta sessão.</small></aside>
+        <aside className="panel order-summary order-summary--complete"><h2>Resumo do pedido</h2><p>{order ? order.number : "Numeração automática ao salvar"}</p><div className="summary-client"><UsersRound size={18} /><div><small>Cliente</small><strong>{customer}</strong></div></div><div className="summary-figures"><div><span>Produtos</span><strong>{items.length}</strong></div><div><span>Subtotal</span><strong>{money(orderSubtotal(draftOrder))}</strong></div></div><label className="summary-field">Ajuste no valor total<DecimalInput ariaLabel="Ajuste no valor total" value={adjustment} allowNegative onValueChange={setAdjustment} /><small>Use valor positivo para acréscimo e negativo para desconto.</small></label><label className="summary-field">Forma de pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select></label><label className="summary-field">Observações<textarea rows={4} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Alterações, combinações e advertências..." /></label><div className="summary-total"><span>Total do pedido</span><strong>{money(orderTotal(draftOrder))}</strong></div><button className="primary-button primary-button--wide" type="submit" disabled={!items.length}><Save size={18} />{order ? "Salvar alterações" : "Finalizar pedido"}</button>{order && <button className="secondary-button print-summary-button" type="button" onClick={() => printOrder(draftOrder)}><Printer size={17} />Imprimir pedido</button>}<small className="summary-note">Os valores deste pedido ficam congelados; alterações futuras no cadastro do produto não mudam este histórico.</small></aside>
       </form>
     </>
   );
 }
 
-function OrdersPage({ orders, saved, startNewOrder, editOrder, updatePayment, updatePaymentMethod }: { orders: Order[]; saved: boolean; startNewOrder: () => void; editOrder: (order: Order) => void; updatePayment: (number: string, status: PaymentStatus) => void; updatePaymentMethod: (number: string, method: PaymentMethod) => void }) {
+function OrdersPage({ orders, saved, startNewOrder, editOrder, updatePayment, updatePaymentMethod, externalQuery = "" }: { orders: Order[]; saved: boolean; startNewOrder: () => void; editOrder: (order: Order) => void; updatePayment: (number: string, status: PaymentStatus) => void; updatePaymentMethod: (number: string, method: PaymentMethod) => void; externalQuery?: string }) {
   const [periodFilter, setPeriodFilter] = useState("Todos");
   const [clientFilter, setClientFilter] = useState("Todos");
   const [paymentFilter, setPaymentFilter] = useState("Todos");
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
+  const [query, setQuery] = useState(externalQuery);
+  useEffect(() => setQuery(externalQuery), [externalQuery]);
+  const normalizedQuery = normalizeSearch(query.trim());
   const { uniqueDates, months } = exportPeriodOptions(orders.map((order) => order.date));
   const visible = orders.filter((order) => {
     const periodMatches = periodFilter === "Todos" || (periodFilter.startsWith("date:") ? order.date === periodFilter.slice(5) : order.date.startsWith(periodFilter.slice(6)));
-    return periodMatches && (clientFilter === "Todos" || order.customer === clientFilter) && (paymentFilter === "Todos" || order.paymentStatus === paymentFilter) && (!normalizedQuery || order.number.toLowerCase().includes(normalizedQuery) || order.customer.toLowerCase().includes(normalizedQuery));
+    return periodMatches && (clientFilter === "Todos" || order.customer === clientFilter) && (paymentFilter === "Todos" || order.paymentStatus === paymentFilter) && (!normalizedQuery || normalizeSearch(`${order.number} ${order.customer} ${order.date} ${order.deliveryDate}`).includes(normalizedQuery));
   });
   const total = visible.reduce((sum, order) => sum + orderTotal(order), 0);
   const pending = visible.filter((order) => order.paymentStatus !== "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
@@ -355,9 +397,9 @@ function OrdersPage({ orders, saved, startNewOrder, editOrder, updatePayment, up
   return (
     <>
       <PageTitle eyebrow="VENDAS E RECEBIMENTOS" title="Pedidos" description="Histórico por data, cliente, valor e situação de pagamento." action={<div className="heading-actions"><button className="secondary-button" onClick={() => downloadCsv(`pedidos-${exportLabel}.csv`, reportHeaders, reportRows)}><Download size={17} />Excel (.csv)</button><button className="secondary-button" onClick={() => printTableReport("Relatório de pedidos", `${visible.length} pedido(s) exibido(s)`, reportHeaders, reportRows)}><FileText size={17} />PDF</button><button className="primary-button" onClick={startNewOrder}><Plus size={18} />Novo pedido</button></div>} />
-      {saved && <div className="success-banner"><CheckCircle2 size={20} /><div><strong>Pedido salvo com sucesso</strong><span>Ele pode ser impresso ou editado a qualquer momento nesta sessão.</span></div></div>}
+      {saved && <div className="success-banner"><CheckCircle2 size={20} /><div><strong>Pedido salvo com sucesso</strong><span>Ele ficou gravado no Firestore e pode ser impresso ou editado a qualquer momento.</span></div></div>}
       <section className="summary-strip"><div><span>Pedidos exibidos</span><strong>{visible.length}</strong></div><div><span>Total vendido</span><strong>{money(total)}</strong></div><div className="summary-strip__warning"><span>A receber</span><strong>{money(pending)}</strong></div></section>
-      <section className="panel list-panel"><div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar pedido ou cliente..." /></div><label className="compact-filter">Período<select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option>Todos</option><optgroup label="Meses">{months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label><label className="compact-filter">Cliente<select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option>Todos</option>{Array.from(new Set(orders.map((order) => order.customer))).sort().map((client) => <option key={client}>{client}</option>)}</select></label><label className="compact-filter">Pagamento<select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}><option>Todos</option><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div><div className="sales-table"><div className="sales-table__head"><span>Pedido</span><span>Data</span><span>Cliente</span><span>Itens</span><span>Total</span><span>Pagamento</span><span>Forma</span><span>Ações</span></div>{visible.map((order) => <div className="sales-table__row" key={order.number}><strong>{order.number}</strong><span>{formatDate(order.date)}</span><span><b>{order.customer}</b><small>{order.observation || "Sem observações"}</small></span><span>{order.items.length}</span><strong>{money(orderTotal(order))}</strong><select aria-label={`Pagamento do pedido ${order.number}`} value={order.paymentStatus} onChange={(event) => updatePayment(order.number, event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select><select aria-label={`Forma de pagamento do pedido ${order.number}`} value={order.paymentMethod} onChange={(event) => updatePaymentMethod(order.number, event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select><div className="row-actions"><button aria-label={`Imprimir ${order.number}`} onClick={() => printOrder(order)}><Printer size={16} /></button><button aria-label={`Editar ${order.number}`} onClick={() => editOrder(order)}><Edit3 size={16} /></button></div></div>)}</div>{!visible.length && <div className="empty-table">Nenhum pedido encontrado com esses filtros.</div>}</section>
+      <section className="panel list-panel"><div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar pedido ou cliente..." /></div><label className="compact-filter">Período<select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option>Todos</option><optgroup label="Meses">{months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label><label className="compact-filter">Cliente<select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option>Todos</option>{Array.from(new Set(orders.map((order) => order.customer))).sort().map((client) => <option key={client}>{client}</option>)}</select></label><label className="compact-filter">Pagamento<select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}><option>Todos</option><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div><div className="sales-table"><div className="sales-table__head"><span>Pedido</span><span>Data do pedido</span><span>Data da entrega</span><span>Cliente</span><span>Itens</span><span>Total</span><span>Pagamento</span><span>Forma</span><span>Ações</span></div>{visible.map((order) => <div className="sales-table__row" key={order.number}><strong>{order.number}</strong><span>{formatDate(order.date)}</span><span>{formatDate(order.deliveryDate)}</span><span><b>{order.customer}</b><small>{order.observation || "Sem observações"}</small></span><span>{order.items.length}</span><strong>{money(orderTotal(order))}</strong><select aria-label={`Pagamento do pedido ${order.number}`} value={order.paymentStatus} onChange={(event) => updatePayment(order.number, event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select><select aria-label={`Forma de pagamento do pedido ${order.number}`} value={order.paymentMethod} onChange={(event) => updatePaymentMethod(order.number, event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select><div className="row-actions"><button aria-label={`Imprimir ${order.number}`} onClick={() => printOrder(order)}><Printer size={16} /></button><button aria-label={`Editar ${order.number}`} onClick={() => editOrder(order)}><Edit3 size={16} /></button></div></div>)}</div>{!visible.length && <div className="empty-table">Nenhum pedido encontrado com esses filtros.</div>}</section>
     </>
   );
 }
@@ -392,7 +434,17 @@ function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, pro
     return Array.from(grouped.values());
   }, [currentOrders]);
   const currentAllocations = allocations.filter((allocation) => allocation.deliveryDate === selectedDate);
-  const addAllocation = (productId: string) => saveAllocation({ id: `allocation-${Date.now()}`, deliveryDate: selectedDate, productId, supplierId: suppliers[0]?.id ?? "", quantity: 0, unitCost: products.find((product) => product.id === productId)?.costReference ?? 0 });
+  const suppliersForProduct = (productId: string, currentSupplierId?: string) => {
+    const product = products.find((candidate) => candidate.id === productId);
+    const restricted = product?.supplierIds?.length ? suppliers.filter((supplier) => product.supplierIds!.includes(supplier.id)) : suppliers;
+    const currentSupplier = currentSupplierId ? suppliers.find((supplier) => supplier.id === currentSupplierId) : undefined;
+    return currentSupplier && !restricted.some((supplier) => supplier.id === currentSupplier.id) ? [currentSupplier, ...restricted] : restricted;
+  };
+  const addAllocation = (productId: string) => {
+    const product = products.find((candidate) => candidate.id === productId);
+    const allowedSuppliers = suppliersForProduct(productId);
+    saveAllocation({ id: `allocation-${Date.now()}`, deliveryDate: selectedDate, productId, supplierId: allowedSuppliers[0]?.id ?? "", quantity: 0, unitCost: product?.costReference ?? 0 });
+  };
   const updateAllocation = (id: string, field: "supplierId" | "quantity" | "unitCost", value: string | number) => {
     const allocation = allocations.find((candidate) => candidate.id === id);
     if (allocation) saveAllocation({ ...allocation, [field]: value });
@@ -407,33 +459,109 @@ function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, pro
   const purchaseRows = visiblePurchaseHistory.map((purchase) => [purchase.number, formatDate(purchase.date), purchase.supplier, purchase.total.toFixed(2).replace(".", ","), purchase.status]);
   return (
     <>
-      <PageTitle eyebrow={`COMPRAS · ENTREGA ${dateLabel(selectedDate)}`} title="Compras" description="Demanda automática dos pedidos, divisão por fornecedor e histórico de pagamentos." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="secondary-button" onClick={() => printLoadSheet(currentOrders, allocations, suppliers)} disabled={!currentOrders.length}><Printer size={17} />Imprimir folha operacional</button></div>} />
+      <PageTitle eyebrow={`COMPRAS · ENTREGA ${dateLabel(selectedDate)}`} title="Compras" description="Demanda automática dos pedidos, divisão por fornecedor e histórico de pagamentos." action={<div className="heading-actions"><OperationDate value={selectedDate} onChange={setSelectedDate} /><button className="secondary-button" onClick={() => printPurchaseSheet(currentOrders, allocations, suppliers)} disabled={!currentOrders.length}><Printer size={17} />Imprimir compras do dia</button><button className="secondary-button" onClick={() => printLoadingSheet(currentOrders, allocations, suppliers)} disabled={!currentOrders.length}><Truck size={17} />Imprimir carregamento do dia</button></div>} />
       <div className="page-tabs"><button className={tab === "demand" ? "page-tab--active" : ""} onClick={() => setTab("demand")}><ShoppingBasket size={17} />Demanda desta entrega</button><button className={tab === "history" ? "page-tab--active" : ""} onClick={() => setTab("history")}><ReceiptText size={17} />Histórico e pagamentos</button></div>
-      {tab === "demand" ? <><section className="summary-strip"><div><span>Produtos diferentes</span><strong>{demand.length}</strong></div><div><span>Custo planejado</span><strong>{money(allocatedCost)}</strong></div><div><span>Fornecedores usados</span><strong>{new Set(currentAllocations.filter((allocation) => allocation.quantity > 0).map((allocation) => allocation.supplierId)).size}</strong></div></section><section className="demand-list">{demand.map((line) => { const productAllocations = currentAllocations.filter((allocation) => allocation.productId === line.productId); const allocated = productAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0); return <article className="panel demand-card" key={line.productId}><div className="demand-card__summary"><div className="product-symbol"><PackageOpen size={19} /></div><div><strong>{line.name}</strong><span>{line.customers.join(" · ")}</span></div><div><small>Demanda total</small><b>{line.total} {line.unit}</b></div><div><small>Já distribuído</small><b className={allocated < line.total ? "warning-text" : "success-text"}>{allocated} {line.unit}</b></div></div><div className="allocation-list">{productAllocations.map((allocation) => <div className="allocation-row" key={allocation.id}><select aria-label={`Fornecedor de ${line.name}`} value={allocation.supplierId} onChange={(event) => updateAllocation(allocation.id, "supplierId", event.target.value)}>{suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.name}</option>)}</select><label>Quantidade<DecimalInput ariaLabel={`Quantidade comprada de ${line.name}`} value={allocation.quantity} onValueChange={(value) => updateAllocation(allocation.id, "quantity", value)} /></label><label>Custo por {line.unit}<DecimalInput ariaLabel={`Custo de ${line.name}`} value={allocation.unitCost} onValueChange={(value) => updateAllocation(allocation.id, "unitCost", value)} /></label><strong>{money(allocation.quantity * allocation.unitCost)}</strong><button className="icon-button danger-icon" aria-label="Remover divisão" onClick={() => deleteAllocation(allocation.id)}><Trash2 size={16} /></button></div>)}</div><button className="text-button add-allocation" onClick={() => addAllocation(line.productId)}><Plus size={16} />Comprar parte em outro fornecedor</button></article>; })}{!demand.length && <div className="panel empty-table">Não há pedidos para a data selecionada.</div>}</section></> : <><section className="summary-strip"><div><span>Compras exibidas</span><strong>{visiblePurchaseHistory.length}</strong></div><div><span>Total comprado</span><strong>{money(visiblePurchaseHistory.reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div><div className="summary-strip__warning"><span>A pagar</span><strong>{money(visiblePurchaseHistory.filter((purchase) => purchase.status !== "Pago").reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div></section><section className="panel list-panel"><div className="list-toolbar"><label className="compact-filter">Período<select value={historyPeriod} onChange={(event) => setHistoryPeriod(event.target.value)}><option>Todos</option><optgroup label="Meses">{historyOptions.months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{historyOptions.uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label><label className="compact-filter">Fornecedor<select value={historySupplier} onChange={(event) => setHistorySupplier(event.target.value)}><option>Todos</option>{Array.from(new Set(purchaseHistory.map((purchase) => purchase.supplier))).map((supplier) => <option key={supplier}>{supplier}</option>)}</select></label><div className="toolbar-spacer" /><button className="secondary-button" onClick={() => downloadCsv("compras-fornecedores.csv", purchaseHeaders, purchaseRows)}><Download size={16} />Excel (.csv)</button><button className="secondary-button" onClick={() => printTableReport("Relatório de compras", `${visiblePurchaseHistory.length} compra(s) exibida(s)`, purchaseHeaders, purchaseRows)}><FileText size={16} />PDF</button></div><div className="purchase-history"><div className="purchase-history__head"><span>Compra</span><span>Data</span><span>Fornecedor</span><span>Total</span><span>Pagamento</span><span /></div>{visiblePurchaseHistory.map((purchase) => <div key={purchase.number}><strong>{purchase.number}</strong><span>{formatDate(purchase.date)}</span><b>{purchase.supplier}</b><strong>{money(purchase.total)}</strong><select aria-label={`Pagamento da compra ${purchase.number}`} value={purchase.status} onChange={(event) => savePurchase({ ...purchase, status: event.target.value as PaymentStatus })}><option>Pendente</option><option>Parcial</option><option>Pago</option></select><button className="square-button" aria-label={`Abrir ${purchase.number}`}><ChevronRight size={16} /></button></div>)}</div>{!visiblePurchaseHistory.length && <div className="empty-table">Nenhuma compra encontrada com esses filtros.</div>}</section></>}
+      {tab === "demand" ? <><section className="summary-strip"><div><span>Produtos diferentes</span><strong>{demand.length}</strong></div><div><span>Custo planejado</span><strong>{money(allocatedCost)}</strong></div><div><span>Fornecedores usados</span><strong>{new Set(currentAllocations.filter((allocation) => allocation.quantity > 0).map((allocation) => allocation.supplierId)).size}</strong></div></section><section className="demand-list">{demand.map((line) => { const productAllocations = currentAllocations.filter((allocation) => allocation.productId === line.productId); const allocated = productAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0); const allowedSuppliers = suppliersForProduct(line.productId); return <article className="panel demand-card" key={line.productId}><div className="demand-card__summary"><div className="product-symbol"><PackageOpen size={19} /></div><div><strong>{line.name}</strong><span>{line.customers.join(" · ")}</span><small className="supplier-hint">{allowedSuppliers.length ? `${allowedSuppliers.length} fornecedor(es) habilitado(s)` : "Cadastre um fornecedor para este produto"}</small></div><div><small>Demanda total</small><b>{line.total} {line.unit}</b></div><div><small>Já distribuído</small><b className={allocated < line.total ? "warning-text" : "success-text"}>{allocated} {line.unit}</b></div></div><div className="allocation-list">{productAllocations.map((allocation) => <div className="allocation-row" key={allocation.id}><select aria-label={`Fornecedor de ${line.name}`} value={allocation.supplierId} onChange={(event) => updateAllocation(allocation.id, "supplierId", event.target.value)}>{suppliersForProduct(line.productId, allocation.supplierId).map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.name}</option>)}</select><label>Quantidade<DecimalInput ariaLabel={`Quantidade comprada de ${line.name}`} value={allocation.quantity} onValueChange={(value) => updateAllocation(allocation.id, "quantity", value)} /></label><label>Custo por {line.unit}<DecimalInput ariaLabel={`Custo de ${line.name}`} value={allocation.unitCost} onValueChange={(value) => updateAllocation(allocation.id, "unitCost", value)} /></label><strong>{money(allocation.quantity * allocation.unitCost)}</strong><button className="icon-button danger-icon" aria-label="Remover divisão" onClick={() => deleteAllocation(allocation.id)}><Trash2 size={16} /></button></div>)}</div><button className="text-button add-allocation" disabled={!allowedSuppliers.length} onClick={() => addAllocation(line.productId)}><Plus size={16} />Comprar parte em outro fornecedor</button></article>; })}{!demand.length && <div className="panel empty-table">Não há pedidos para a data selecionada.</div>}</section></> : <><section className="summary-strip"><div><span>Compras exibidas</span><strong>{visiblePurchaseHistory.length}</strong></div><div><span>Total comprado</span><strong>{money(visiblePurchaseHistory.reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div><div className="summary-strip__warning"><span>A pagar</span><strong>{money(visiblePurchaseHistory.filter((purchase) => purchase.status !== "Pago").reduce((sum, purchase) => sum + purchase.total, 0))}</strong></div></section><section className="panel list-panel"><div className="list-toolbar"><label className="compact-filter">Período<select value={historyPeriod} onChange={(event) => setHistoryPeriod(event.target.value)}><option>Todos</option><optgroup label="Meses">{historyOptions.months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{historyOptions.uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label><label className="compact-filter">Fornecedor<select value={historySupplier} onChange={(event) => setHistorySupplier(event.target.value)}><option>Todos</option>{Array.from(new Set(purchaseHistory.map((purchase) => purchase.supplier))).sort((left, right) => left.localeCompare(right, "pt-BR")).map((supplier) => <option key={supplier}>{supplier}</option>)}</select></label><div className="toolbar-spacer" /><button className="secondary-button" onClick={() => downloadCsv("compras-fornecedores.csv", purchaseHeaders, purchaseRows)}><Download size={16} />Excel (.csv)</button><button className="secondary-button" onClick={() => printTableReport("Relatório de compras", `${visiblePurchaseHistory.length} compra(s) exibida(s)`, purchaseHeaders, purchaseRows)}><FileText size={16} />PDF</button></div><div className="purchase-history"><div className="purchase-history__head"><span>Compra</span><span>Data</span><span>Fornecedor</span><span>Total</span><span>Pagamento</span><span /></div>{visiblePurchaseHistory.map((purchase) => <div key={purchase.id}><strong>{purchase.number}</strong><span>{formatDate(purchase.date)}</span><b>{purchase.supplier}</b><strong>{money(purchase.total)}</strong><select aria-label={`Pagamento da compra ${purchase.number}`} value={purchase.status} onChange={(event) => savePurchase({ ...purchase, status: event.target.value as PaymentStatus })}><option>Pendente</option><option>Parcial</option><option>Pago</option></select><button className="square-button" aria-label={`Abrir ${purchase.number}`}><ChevronRight size={16} /></button></div>)}</div>{!visiblePurchaseHistory.length && <div className="empty-table">Nenhuma compra encontrada com esses filtros.</div>}</section></>}
     </>
   );
 }
 
-type RegistryRecord = { id: string; name: string; contact: string; phone: string; address: string; city: string; observation: string; code: string; category: string; unit: Unit; cost: number; sale: number };
+type RegistryRecord = { id: string; name: string; contact: string; phone: string; address: string; city: string; observation: string; code: string; category: string; unit: Unit; cost: number; sale: number; supplierIds: string[] };
+type RegistrySort = "name-asc" | "name-desc" | "code-asc" | "code-desc";
 
-function RegistryPage({ type, records, onSave, onDelete }: { type: "clients" | "products" | "suppliers"; records: RegistryRecord[]; onSave: (record: RegistryRecord) => void; onDelete: (id: string) => void }) {
+function RegistryPage({ type, records, onSave, onDelete, suppliers = [], onImportProducts, externalQuery = "" }: { type: "clients" | "products" | "suppliers"; records: RegistryRecord[]; onSave: (record: RegistryRecord) => void; onDelete: (id: string) => void; suppliers?: Supplier[]; onImportProducts?: (products: Product[]) => void; externalQuery?: string }) {
   const [editing, setEditing] = useState<RegistryRecord | null>(null);
-  const [query, setQuery] = useState("");
-  const config = { clients: { title: "Clientes", description: "Empresas atendidas, contatos e histórico de pedidos.", button: "Novo cliente", icon: UserPlus }, products: { title: "Produtos", description: "Catálogo sem estoque, com custo e venda de referência.", button: "Novo produto", icon: Plus }, suppliers: { title: "Fornecedores", description: "Parceiros de compra, categorias e dias de entrega.", button: "Novo fornecedor", icon: Plus } }[type];
+  const [query, setQuery] = useState(externalQuery);
+  const [sort, setSort] = useState<RegistrySort>(type === "products" ? "code-asc" : "name-asc");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkFeedback, setBulkFeedback] = useState<{ imported: number; errors: string[] }>();
+  useEffect(() => setQuery(externalQuery), [externalQuery]);
+  const config = { clients: { title: "Clientes", description: "Empresas atendidas, contatos e histórico de pedidos.", button: "Novo cliente", icon: UserPlus }, products: { title: "Produtos", description: "Catálogo por número, preços de referência e fornecedores habilitados.", button: "Novo produto", icon: Plus }, suppliers: { title: "Fornecedores", description: "Parceiros de compra, categorias e dias de entrega.", button: "Novo fornecedor", icon: Plus } }[type];
   const Icon = config.icon;
-  const openEditor = (record?: RegistryRecord) => setEditing(record ?? { id: `new-${Date.now()}`, name: "", contact: "", phone: "", address: "", city: "", observation: "", code: "", category: "", unit: "un", cost: 0, sale: 0 });
+  const sortOptions: Array<{ id: RegistrySort; label: string }> = type === "products"
+    ? [{ id: "code-asc", label: "Número ↑" }, { id: "code-desc", label: "Número ↓" }, { id: "name-asc", label: "Nome A–Z" }, { id: "name-desc", label: "Nome Z–A" }]
+    : [{ id: "name-asc", label: "Nome A–Z" }, { id: "name-desc", label: "Nome Z–A" }];
+  const openEditor = (record?: RegistryRecord) => setEditing(record ?? { id: `new-${Date.now()}`, name: "", contact: "", phone: "", address: "", city: "", observation: "", code: "", category: "", unit: "un", cost: 0, sale: 0, supplierIds: [] });
   const updateDraft = <K extends keyof RegistryRecord,>(field: K, value: RegistryRecord[K]) => setEditing((current) => current ? { ...current, [field]: value } : current);
+  const toggleSupplier = (supplierId: string) => setEditing((current) => current ? { ...current, supplierIds: current.supplierIds.includes(supplierId) ? current.supplierIds.filter((id) => id !== supplierId) : [...current.supplierIds, supplierId] } : current);
   const saveRecord = () => {
     if (!editing || !editing.name.trim()) return;
-    const updated = { ...editing, name: editing.name.trim() };
-    onSave(updated);
+    onSave({ ...editing, name: editing.name.trim(), code: editing.code.trim() });
     setEditing(null);
+  };
+  const cycleSort = () => {
+    const index = sortOptions.findIndex((option) => option.id === sort);
+    setSort(sortOptions[(index + 1) % sortOptions.length].id);
+  };
+  const visibleRecords = useMemo(() => records
+    .filter((record) => normalizeSearch(`${record.code} ${record.name} ${record.contact}`).includes(normalizeSearch(query.trim())))
+    .sort((left, right) => {
+      if (sort === "code-asc" || sort === "code-desc") {
+        const direction = sort === "code-asc" ? 1 : -1;
+        const leftCode = left.code || "\uffff";
+        const rightCode = right.code || "\uffff";
+        return direction * leftCode.localeCompare(rightCode, "pt-BR", { numeric: true }) || left.name.localeCompare(right.name, "pt-BR");
+      }
+      const direction = sort === "name-asc" ? 1 : -1;
+      return direction * left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" });
+    }), [records, query, sort]);
+  const importProducts = () => {
+    const parsed = parseProductList(bulkText);
+    const existingCodes = new Set(records.map((record) => normalizeSearch(record.code.trim())).filter(Boolean));
+    const acceptedCodes = new Set<string>();
+    const duplicates: string[] = [];
+    const accepted = parsed.products.filter((product, index) => {
+      const code = normalizeSearch(product.code);
+      if (existingCodes.has(code) || acceptedCodes.has(code)) {
+        duplicates.push(`Linha ${index + 1}: número ${product.code} já cadastrado ou repetido.`);
+        return false;
+      }
+      acceptedCodes.add(code);
+      return true;
+    });
+    onImportProducts?.(accepted);
+    setBulkFeedback({ imported: accepted.length, errors: [...parsed.errors, ...duplicates] });
+    if (accepted.length && !parsed.errors.length && !duplicates.length) setBulkText("");
   };
   return (
     <>
-      <PageTitle eyebrow="CADASTROS" title={config.title} description={config.description} action={<button className="primary-button" onClick={() => openEditor()}><Icon size={18} />{config.button}</button>} />
-      {editing && <section className="panel registry-editor"><div className="registry-editor__heading"><div><strong>{records.some((record) => record.id === editing.id) ? "Editar cadastro" : "Novo cadastro"}</strong><span>Preencha os dados operacionais que serão consultados nos pedidos.</span></div><button className="icon-button" aria-label="Fechar cadastro" onClick={() => setEditing(null)}><X size={18} /></button></div><div className="registry-editor__grid"><label className="registry-field registry-field--wide">{type === "products" ? "Produto" : type === "clients" ? "Nome do cliente" : "Nome do fornecedor"}<input value={editing.name} onChange={(event) => updateDraft("name", event.target.value)} autoFocus /></label>{type === "products" ? <><label className="registry-field">Número do produto<input value={editing.code} inputMode="numeric" onChange={(event) => updateDraft("code", event.target.value)} placeholder="Ex.: 010" /></label><label className="registry-field">Categoria<input value={editing.category} onChange={(event) => updateDraft("category", event.target.value)} /></label><label className="registry-field">Unidade<select value={editing.unit} onChange={(event) => updateDraft("unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select></label><label className="registry-field">Custo de referência<DecimalInput ariaLabel="Custo de referência" value={editing.cost} onValueChange={(value) => updateDraft("cost", value)} /></label><label className="registry-field">Venda de referência<DecimalInput ariaLabel="Venda de referência" value={editing.sale} onValueChange={(value) => updateDraft("sale", value)} /></label></> : <><label className="registry-field">Nome de contato<input value={editing.contact} onChange={(event) => updateDraft("contact", event.target.value)} /></label><label className="registry-field">Telefone<input value={editing.phone} inputMode="tel" onChange={(event) => updateDraft("phone", event.target.value)} /></label><label className="registry-field registry-field--wide">Endereço<input value={editing.address} onChange={(event) => updateDraft("address", event.target.value)} /></label><label className="registry-field">Cidade<input value={editing.city} onChange={(event) => updateDraft("city", event.target.value)} /></label><label className="registry-field registry-field--full">Observação<textarea rows={3} value={editing.observation} onChange={(event) => updateDraft("observation", event.target.value)} /></label></>}</div><div className="registry-editor__actions"><button className="secondary-button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" onClick={saveRecord} disabled={!editing.name.trim()}><Save size={17} />Salvar cadastro</button></div></section>}
-      <section className="panel list-panel"><div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Buscar ${config.title.toLowerCase()}...`} /></div><button className="secondary-button"><ListFilter size={16} />Ordenar</button></div><div className={`registry-cards registry-cards--${type}`}>{records.filter((record) => normalizeSearch(`${record.code} ${record.name} ${record.contact}`).includes(normalizeSearch(query.trim()))).map((record) => <article key={record.id}><div className="registry-card-icon">{type === "clients" ? <UsersRound size={20} /> : type === "products" ? <PackageOpen size={20} /> : <Store size={20} />}</div><div className="registry-card-copy">{type === "products" ? <><small>Nº {record.code || "—"} · {record.category || "Sem categoria"}</small><h3>{record.name}</h3><p>Unidade: {record.unit}</p><span>Sem controle de estoque</span><div className="reference-prices"><b>Custo: {money(record.cost)}</b><b>Venda: {money(record.sale)}</b></div></> : <><small>{record.contact || "Contato não informado"}</small><h3>{record.name}</h3><p>{record.phone || "Telefone não informado"}</p><span>{[record.address, record.city].filter(Boolean).join(" · ") || "Endereço não informado"}</span>{record.observation && <em>{record.observation}</em>}</>}</div><div className="registry-card-actions"><button aria-label={`Editar ${record.name}`} onClick={() => openEditor(record)}><Edit3 size={16} /></button><button className="danger-icon" aria-label={`Excluir ${record.name}`} onClick={() => onDelete(record.id)}><Trash2 size={16} /></button></div></article>)}</div></section>
+      <PageTitle eyebrow="CADASTROS" title={config.title} description={config.description} action={<div className="heading-actions">{type === "products" && <button className="secondary-button" onClick={() => { setBulkOpen((current) => !current); setBulkFeedback(undefined); }}><ClipboardList size={17} />Inserir lista</button>}<button className="primary-button" onClick={() => openEditor()}><Icon size={18} />{config.button}</button></div>} />
+      {type === "products" && bulkOpen && <section className="panel bulk-import">
+        <div className="registry-editor__heading"><div><strong>Inserir vários produtos</strong><span>Use uma linha por produto: Nome, Número, Categoria, Unidade, Custo, Venda. Também aceitamos ponto e vírgula.</span></div><button className="icon-button" aria-label="Fechar importação" onClick={() => setBulkOpen(false)}><X size={18} /></button></div>
+        <textarea rows={8} value={bulkText} onChange={(event) => setBulkText(event.target.value)} placeholder={"Alface americana, 010, Folhas, un, 2,50, 3,80\nBatata doce; 011; Tubérculos; kg; 4,20; 5,90"} />
+        {bulkFeedback && <div className={bulkFeedback.errors.length ? "bulk-feedback bulk-feedback--warning" : "bulk-feedback"}><strong>{bulkFeedback.imported} produto(s) inserido(s).</strong>{bulkFeedback.errors.slice(0, 4).map((error) => <span key={error}>{error}</span>)}{bulkFeedback.errors.length > 4 && <span>Mais {bulkFeedback.errors.length - 4} linha(s) precisam de revisão.</span>}</div>}
+        <div className="registry-editor__actions"><button className="secondary-button" onClick={() => { setBulkText(""); setBulkFeedback(undefined); }}>Limpar</button><button className="primary-button" disabled={!bulkText.trim()} onClick={importProducts}><Save size={17} />Importar produtos</button></div>
+      </section>}
+      {editing && <section className="panel registry-editor">
+        <div className="registry-editor__heading"><div><strong>{records.some((record) => record.id === editing.id) ? "Editar cadastro" : "Novo cadastro"}</strong><span>Preencha os dados operacionais que serão consultados nos pedidos.</span></div><button className="icon-button" aria-label="Fechar cadastro" onClick={() => setEditing(null)}><X size={18} /></button></div>
+        <div className="registry-editor__grid">
+          <label className="registry-field registry-field--wide">{type === "products" ? "Produto" : type === "clients" ? "Nome do cliente" : "Nome do fornecedor"}<input value={editing.name} onChange={(event) => updateDraft("name", event.target.value)} autoFocus /></label>
+          {type === "products" ? <>
+            <label className="registry-field">Número do produto<input value={editing.code} inputMode="numeric" onChange={(event) => updateDraft("code", event.target.value)} placeholder="Ex.: 010" /></label>
+            <label className="registry-field">Categoria<input value={editing.category} onChange={(event) => updateDraft("category", event.target.value)} /></label>
+            <label className="registry-field">Unidade<select value={editing.unit} onChange={(event) => updateDraft("unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select></label>
+            <label className="registry-field">Custo de referência<DecimalInput ariaLabel="Custo de referência" value={editing.cost} onValueChange={(value) => updateDraft("cost", value)} /></label>
+            <label className="registry-field">Venda de referência<DecimalInput ariaLabel="Venda de referência" value={editing.sale} onValueChange={(value) => updateDraft("sale", value)} /></label>
+            <fieldset className="registry-field registry-field--full supplier-picker"><legend>Fornecedores deste produto</legend><p>Selecione um ou vários. Se nenhum for marcado, todos ficam disponíveis para manter cadastros antigos compatíveis.</p><div>{suppliers.map((supplier) => <label key={supplier.id}><input type="checkbox" checked={editing.supplierIds.includes(supplier.id)} onChange={() => toggleSupplier(supplier.id)} /><span>{supplier.name}</span></label>)}</div>{!suppliers.length && <small>Nenhum fornecedor cadastrado ainda.</small>}</fieldset>
+          </> : <>
+            <label className="registry-field">Nome de contato<input value={editing.contact} onChange={(event) => updateDraft("contact", event.target.value)} /></label>
+            <label className="registry-field">Telefone<input value={editing.phone} inputMode="tel" onChange={(event) => updateDraft("phone", event.target.value)} /></label>
+            <label className="registry-field registry-field--wide">Endereço<input value={editing.address} onChange={(event) => updateDraft("address", event.target.value)} /></label>
+            <label className="registry-field">Cidade<input value={editing.city} onChange={(event) => updateDraft("city", event.target.value)} /></label>
+            <label className="registry-field registry-field--full">Observação<textarea rows={3} value={editing.observation} onChange={(event) => updateDraft("observation", event.target.value)} /></label>
+          </>}
+        </div>
+        <div className="registry-editor__actions"><button className="secondary-button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" onClick={saveRecord} disabled={!editing.name.trim()}><Save size={17} />Salvar cadastro</button></div>
+      </section>}
+      <section className="panel list-panel">
+        <div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Buscar ${config.title.toLowerCase()}...`} /></div><button className="secondary-button" onClick={cycleSort}><ListFilter size={16} />Ordenar: {sortOptions.find((option) => option.id === sort)?.label}</button></div>
+        <div className={`registry-cards registry-cards--${type}`}>{visibleRecords.map((record) => {
+          const supplierNames = record.supplierIds.map((id) => suppliers.find((supplier) => supplier.id === id)?.name).filter(Boolean);
+          return <article key={record.id}><div className="registry-card-icon">{type === "clients" ? <UsersRound size={20} /> : type === "products" ? <PackageOpen size={20} /> : <Store size={20} />}</div><div className="registry-card-copy">{type === "products" ? <><small>Nº {record.code || "—"} · {record.category || "Sem categoria"}</small><h3>{record.name}</h3><p>Unidade: {record.unit}</p><span>{supplierNames.length ? `Fornecedores: ${supplierNames.join(", ")}` : "Todos os fornecedores disponíveis"}</span><div className="reference-prices"><b>Custo: {money(record.cost)}</b><b>Venda: {money(record.sale)}</b></div></> : <><small>{record.contact || "Contato não informado"}</small><h3>{record.name}</h3><p>{record.phone || "Telefone não informado"}</p><span>{[record.address, record.city].filter(Boolean).join(" · ") || "Endereço não informado"}</span>{record.observation && <em>{record.observation}</em>}</>}</div><div className="registry-card-actions"><button aria-label={`Editar ${record.name}`} onClick={() => openEditor(record)}><Edit3 size={16} /></button><button className="danger-icon" aria-label={`Excluir ${record.name}`} onClick={() => onDelete(record.id)}><Trash2 size={16} /></button></div></article>;
+        })}</div>
+        {!visibleRecords.length && <div className="empty-table">Nenhum cadastro encontrado.</div>}
+      </section>
     </>
   );
 }
@@ -443,8 +571,7 @@ const defaultOperationDate = (orders: Order[]) => {
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const dates = Array.from(new Set(orders.map((order) => order.deliveryDate))).sort();
   if (dates.includes(today)) return today;
-  const pastDates = dates.filter((date) => date <= today);
-  return pastDates[pastDates.length - 1] ?? dates[dates.length - 1] ?? today;
+  return dates[dates.length - 1] ?? today;
 };
 
 const makeInitialAllocations = (orders: Order[]): PurchaseAllocation[] => {
@@ -455,7 +582,17 @@ const makeInitialAllocations = (orders: Order[]): PurchaseAllocation[] => {
     current.quantity += line.quantity;
     grouped.set(key, current);
   }));
-  return Array.from(grouped.values()).map((line, index) => ({ id: `allocation-${line.deliveryDate}-${line.productId}`, deliveryDate: line.deliveryDate, productId: line.productId, supplierId: demoSuppliers[index % demoSuppliers.length].id, quantity: line.quantity, unitCost: demoProducts.find((product) => product.id === line.productId)?.costReference ?? 0 }));
+  return Array.from(grouped.values()).map((line, index) => {
+    const product = demoProducts.find((candidate) => candidate.id === line.productId);
+    return {
+      id: `allocation-${line.deliveryDate}-${line.productId}`,
+      deliveryDate: line.deliveryDate,
+      productId: line.productId,
+      supplierId: product?.supplierIds?.[0] ?? demoSuppliers[index % demoSuppliers.length].id,
+      quantity: line.quantity,
+      unitCost: product?.costReference ?? 0,
+    };
+  });
 };
 
 const makeInitialOperationStages = (orders: Order[]): OperationStagesByDate => {
@@ -471,6 +608,11 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [selectedDate, setSelectedDate] = useState(() => defaultOperationDate(initialOrders));
   const [seeding, setSeeding] = useState(false);
+  const [globalQuery, setGlobalQuery] = useState("");
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [pageSearch, setPageSearch] = useState<{ view: ViewId; query: string }>();
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const clientStore = useSyncedCollection<Client>("clients", demoClients);
   const productStore = useSyncedCollection<Product>("products", demoProducts);
   const supplierStore = useSyncedCollection<Supplier>("suppliers", demoSuppliers);
@@ -481,17 +623,54 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   const operationStore = useSyncedCollection<OperationDay>("operationDays", initialOperationDays);
   const orders = [...orderStore.records].sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number, undefined, { numeric: true }));
   const allocations = allocationStore.records;
+  const purchaseHistory = useMemo(() => buildPurchaseHistory(allocations, supplierStore.records, purchaseStore.records), [allocations, supplierStore.records, purchaseStore.records]);
+  const deliveryDates = Array.from(new Set(orders.map((order) => order.deliveryDate))).sort();
+  const nextDeliveryDate = deliveryDates[deliveryDates.length - 1] ?? localIsoDate();
   const operationStages: OperationStagesByDate = Object.fromEntries(operationStore.records.map((operation) => [operation.date, operation.stages]));
   const dataLoading = [clientStore, productStore, supplierStore, orderStore, allocationStore, purchaseStore, operationStore].some((store) => store.loading);
   const dataError = [clientStore, productStore, supplierStore, orderStore, allocationStore, purchaseStore, operationStore].map((store) => store.error).find(Boolean) ?? "";
   const databaseEmpty = firebaseConfigured && !dataLoading && !clientStore.records.length && !productStore.records.length && !supplierStore.records.length && !orders.length;
+  const pendingOrders = orders.filter((order) => order.paymentStatus !== "Pago");
+  const pendingPurchases = purchaseHistory.filter((purchase) => purchase.status !== "Pago");
+  const normalizedGlobalQuery = normalizeSearch(globalQuery.trim());
+  const globalResults = useMemo<GlobalSearchResult[]>(() => {
+    if (normalizedGlobalQuery.length < 2) return [];
+    const candidates: GlobalSearchResult[] = [
+      ...orders.map((order) => ({ id: `order-${order.id}`, view: "orders" as const, label: "Pedido", title: `${order.number} · ${order.customer}`, detail: `Pedido ${formatDate(order.date)} · Entrega ${formatDate(order.deliveryDate)}`, query: order.number })),
+      ...clientStore.records.map((client) => ({ id: `client-${client.id}`, view: "clients" as const, label: "Cliente", title: client.name, detail: [client.contact, client.phone, client.city].filter(Boolean).join(" · ") || "Cadastro de cliente", query: client.name })),
+      ...productStore.records.map((product) => ({ id: `product-${product.id}`, view: "products" as const, label: "Produto", title: `${product.code || "—"} · ${product.name}`, detail: `${product.category || "Sem categoria"} · ${money(product.saleReference)}/${product.unit}`, query: product.code || product.name })),
+      ...supplierStore.records.map((supplier) => ({ id: `supplier-${supplier.id}`, view: "suppliers" as const, label: "Fornecedor", title: supplier.name, detail: [supplier.contact, supplier.phone, supplier.city].filter(Boolean).join(" · ") || "Cadastro de fornecedor", query: supplier.name })),
+    ];
+    return candidates.filter((candidate) => normalizeSearch(`${candidate.label} ${candidate.title} ${candidate.detail}`).includes(normalizedGlobalQuery)).slice(0, 10);
+  }, [normalizedGlobalQuery, orders, clientStore.records, productStore.records, supplierStore.records]);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; try { window.localStorage.setItem("zeca-hortifruti-theme", theme); } catch (_) { /* preference remains active for this session */ } }, [theme]);
   useEffect(() => { const handleHash = () => setView(viewFromHash()); window.addEventListener("hashchange", handleHash); if (!window.location.hash) window.history.replaceState(null, "", "#/inicio"); return () => window.removeEventListener("hashchange", handleHash); }, []);
   useEffect(() => { if (orders.length && !orders.some((order) => order.deliveryDate === selectedDate)) setSelectedDate(defaultOperationDate(orders)); }, [orders, selectedDate]);
-  const navigate: Navigate = (next) => { setView(next); if (next !== "orders") setSavedOrder(false); window.history.pushState(null, "", `#/${routes[next]}`); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setGlobalSearchOpen(true);
+        searchInputRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setGlobalSearchOpen(false);
+        setNotificationOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+  const navigate: Navigate = (next) => { setView(next); setPageSearch(undefined); setGlobalSearchOpen(false); setNotificationOpen(false); if (next !== "orders") setSavedOrder(false); window.history.pushState(null, "", `#/${routes[next]}`); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const startNewOrder = () => { setEditingOrder(undefined); navigate("order-form"); };
   const editOrder = (order: Order) => { setEditingOrder(order); navigate("order-form"); };
+  const openNextDelivery = () => { setSelectedDate(nextDeliveryDate); navigate("operation"); };
+  const openGlobalResult = (result: GlobalSearchResult) => {
+    setGlobalQuery("");
+    navigate(result.view);
+    setPageSearch({ view: result.view, query: result.query });
+  };
   const saveOrder = (order: Order) => { orderStore.upsert(order); setSavedOrder(true); setEditingOrder(order); };
   const updatePayment = (number: string, status: PaymentStatus) => { const order = orders.find((candidate) => candidate.number === number); if (order) orderStore.upsert({ ...order, paymentStatus: status }); };
   const updatePaymentMethod = (number: string, method: PaymentMethod) => { const order = orders.find((candidate) => candidate.number === number); if (order) orderStore.upsert({ ...order, paymentMethod: method }); };
@@ -506,19 +685,41 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   };
   const nextOrderNumber = `#${orders.length ? Math.max(...orders.map((order) => Number(order.number.replace(/\D/g, "")) || 0)) + 1 : 1}`;
   let content: ReactNode;
-  if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} supplierCatalog={supplierStore.records} />;
+  if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} supplierCatalog={supplierStore.records} purchaseHistory={purchaseHistory} />;
   else if (view === "order-form") content = <OrderForm key={editingOrder?.number ?? "new-order"} order={editingOrder} nextNumber={nextOrderNumber} navigate={navigate} onSave={saveOrder} catalogClients={clientStore.records} catalogProducts={productStore.records} />;
-  else if (view === "orders") content = <OrdersPage orders={orders} saved={savedOrder} startNewOrder={startNewOrder} editOrder={editOrder} updatePayment={updatePayment} updatePaymentMethod={updatePaymentMethod} />;
+  else if (view === "orders") content = <OrdersPage orders={orders} saved={savedOrder} startNewOrder={startNewOrder} editOrder={editOrder} updatePayment={updatePayment} updatePaymentMethod={updatePaymentMethod} externalQuery={pageSearch?.view === "orders" ? pageSearch.query : ""} />;
   else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} saveOperationStages={saveOperationStages} supplierCatalog={supplierStore.records} />;
-  else if (view === "purchases") content = <PurchasesPage orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} products={productStore.records} suppliers={supplierStore.records} purchaseHistory={purchaseStore.records} saveAllocation={allocationStore.upsert} deleteAllocation={allocationStore.remove} savePurchase={purchaseStore.upsert} />;
-  else if (view === "clients") content = <RegistryPage key={view} type="clients" records={clientStore.records.map((client) => ({ id: client.id, name: client.name, contact: client.contact, phone: client.phone, address: client.address, city: client.city, observation: client.observation, code: "", category: "", unit: "un", cost: 0, sale: 0 }))} onSave={(record) => clientStore.upsert({ id: record.id, name: record.name, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, orders: clientStore.records.find((client) => client.id === record.id)?.orders ?? 0, status: "Ativo" })} onDelete={clientStore.remove} />;
-  else if (view === "products") content = <RegistryPage key={view} type="products" records={productStore.records.map((product) => ({ id: product.id, name: product.name, contact: "", phone: "", address: "", city: "", observation: "", code: product.code, category: product.category, unit: product.unit, cost: product.costReference, sale: product.saleReference }))} onSave={(record) => productStore.upsert({ id: record.id, code: record.code, name: record.name, category: record.category, unit: record.unit, costReference: record.cost, saleReference: record.sale, aliases: productStore.records.find((product) => product.id === record.id)?.aliases ?? [record.name] })} onDelete={productStore.remove} />;
-  else content = <RegistryPage key={view} type="suppliers" records={supplierStore.records.map((supplier) => ({ id: supplier.id, name: supplier.name, contact: supplier.contact, phone: supplier.phone, address: supplier.address, city: supplier.city, observation: supplier.observation, code: "", category: supplier.categories, unit: "un", cost: 0, sale: 0 }))} onSave={(record) => supplierStore.upsert({ id: record.id, name: record.name, categories: record.category, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, delivery: record.observation, rating: supplierStore.records.find((supplier) => supplier.id === record.id)?.rating ?? "Novo" })} onDelete={supplierStore.remove} />;
+  else if (view === "purchases") content = <PurchasesPage orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} products={productStore.records} suppliers={supplierStore.records} purchaseHistory={purchaseHistory} saveAllocation={allocationStore.upsert} deleteAllocation={allocationStore.remove} savePurchase={purchaseStore.upsert} />;
+  else if (view === "clients") content = <RegistryPage key={view} type="clients" externalQuery={pageSearch?.view === "clients" ? pageSearch.query : ""} records={clientStore.records.map((client) => ({ id: client.id, name: client.name, contact: client.contact, phone: client.phone, address: client.address, city: client.city, observation: client.observation, code: "", category: "", unit: "un", cost: 0, sale: 0, supplierIds: [] }))} onSave={(record) => clientStore.upsert({ id: record.id, name: record.name, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, orders: clientStore.records.find((client) => client.id === record.id)?.orders ?? 0, status: "Ativo" })} onDelete={clientStore.remove} />;
+  else if (view === "products") content = <RegistryPage key={view} type="products" externalQuery={pageSearch?.view === "products" ? pageSearch.query : ""} suppliers={supplierStore.records} records={productStore.records.map((product) => ({ id: product.id, name: product.name, contact: "", phone: "", address: "", city: "", observation: "", code: product.code, category: product.category, unit: product.unit, cost: product.costReference, sale: product.saleReference, supplierIds: product.supplierIds ?? [] }))} onSave={(record) => productStore.upsert({ id: record.id, code: record.code, name: record.name, category: record.category, unit: record.unit, costReference: record.cost, saleReference: record.sale, aliases: productStore.records.find((product) => product.id === record.id)?.aliases ?? [record.name], supplierIds: record.supplierIds })} onImportProducts={productStore.upsertMany} onDelete={productStore.remove} />;
+  else content = <RegistryPage key={view} type="suppliers" externalQuery={pageSearch?.view === "suppliers" ? pageSearch.query : ""} records={supplierStore.records.map((supplier) => ({ id: supplier.id, name: supplier.name, contact: supplier.contact, phone: supplier.phone, address: supplier.address, city: supplier.city, observation: supplier.observation, code: "", category: supplier.categories, unit: "un", cost: 0, sale: 0, supplierIds: [] }))} onSave={(record) => supplierStore.upsert({ id: record.id, name: record.name, categories: record.category, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, delivery: record.observation, rating: supplierStore.records.find((supplier) => supplier.id === record.id)?.rating ?? "Novo" })} onDelete={supplierStore.remove} />;
   if (dataLoading) return <AccessScreen state="loading" retry={() => undefined} />;
   return (
     <div className="app-shell">
-      <Sidebar open={menuOpen} close={() => setMenuOpen(false)} current={view} navigate={navigate} startNewOrder={startNewOrder} firebaseUser={firebaseUser} firebaseRole={firebaseRole} />
-      <main className="main-content"><header className="topbar"><div className="topbar__left"><button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={21} /></button><div className="search-box"><Search size={18} /><input aria-label="Pesquisar" placeholder="Buscar pedido, cliente ou produto..." /><kbd>⌘ K</kbd></div></div><div className="topbar__actions"><button className="icon-button theme-button" type="button" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} aria-pressed={theme === "dark"} title={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button><button className="icon-button notification-button" aria-label="Notificações"><Bell size={20} /><span /></button><button className="primary-button" onClick={startNewOrder}><Plus size={18} />Novo pedido</button></div></header>{firebaseConfigured ? <div className="secure-banner" role="status"><ShieldCheck size={15} /><strong>Ambiente protegido</strong><span>Login Google e dados sincronizados com o Firestore.</span></div> : <div className="demo-banner" role="status"><Leaf size={15} /><strong>Ambiente demonstrativo</strong><span>Configure o Firebase antes de inserir informações reais.</span></div>}{dataError && <div className="data-error" role="alert"><X size={15} /><strong>Falha ao sincronizar:</strong><span>{dataError}</span></div>}{databaseEmpty && <div className="database-empty"><div><strong>Banco conectado e vazio</strong><span>Você pode iniciar os cadastros do zero ou carregar os dados fictícios para validar o fluxo.</span></div><button className="secondary-button" disabled={seeding} onClick={() => void seedDemo()}>{seeding ? "Carregando..." : "Carregar dados demonstrativos"}</button></div>}<div className="page">{content}</div></main>
+      <Sidebar open={menuOpen} close={() => setMenuOpen(false)} current={view} navigate={navigate} startNewOrder={startNewOrder} firebaseUser={firebaseUser} firebaseRole={firebaseRole} nextDeliveryDate={nextDeliveryDate} openNextDelivery={openNextDelivery} />
+      <main className="main-content">
+        <header className="topbar">
+          <div className="topbar__left">
+            <button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={21} /></button>
+            <div className="global-search">
+              <div className="search-box"><Search size={18} /><input ref={searchInputRef} aria-label="Pesquisar em todo o sistema" value={globalQuery} placeholder="Buscar pedido, cliente, produto ou fornecedor..." onFocus={() => setGlobalSearchOpen(true)} onChange={(event) => { setGlobalQuery(event.target.value); setGlobalSearchOpen(true); }} onBlur={() => setTimeout(() => setGlobalSearchOpen(false), 140)} /><kbd>Ctrl K</kbd></div>
+              {globalSearchOpen && globalQuery.trim() && <div className="global-search-results" role="listbox">{globalResults.length ? globalResults.map((result) => <button key={result.id} role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => openGlobalResult(result)}><span>{result.label}</span><div><strong>{result.title}</strong><small>{result.detail}</small></div><ChevronRight size={16} /></button>) : <div className="search-empty">Nenhum resultado encontrado.</div>}</div>}
+            </div>
+          </div>
+          <div className="topbar__actions">
+            <button className="icon-button theme-button" type="button" aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} aria-pressed={theme === "dark"} title={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
+            <div className="notification-menu">
+              <button className="icon-button notification-button" aria-label="Notificações financeiras" aria-expanded={notificationOpen} onClick={() => setNotificationOpen((current) => !current)}><Bell size={20} />{pendingOrders.length + pendingPurchases.length > 0 && <span />}</button>
+              {notificationOpen && <div className="notification-panel"><div className="notification-panel__header"><strong>Pendências</strong><small>{pendingOrders.length + pendingPurchases.length} aviso(s)</small></div>{pendingOrders.length ? <button onClick={() => navigate("orders")}><CreditCard size={18} /><div><strong>{pendingOrders.length} pedido(s) a receber</strong><span>{money(pendingOrders.reduce((sum, order) => sum + orderTotal(order), 0))}</span></div><ChevronRight size={16} /></button> : <div className="notification-ok"><CheckCircle2 size={17} />Nenhum cliente pendente</div>}{pendingPurchases.length ? <button onClick={() => navigate("purchases")}><CircleDollarSign size={18} /><div><strong>{pendingPurchases.length} compra(s) a pagar</strong><span>{money(pendingPurchases.reduce((sum, purchase) => sum + purchase.total, 0))}</span></div><ChevronRight size={16} /></button> : <div className="notification-ok"><CheckCircle2 size={17} />Nenhum fornecedor pendente</div>}</div>}
+            </div>
+            <button className="primary-button topbar-new-order" onClick={startNewOrder}><Plus size={18} /><span>Novo pedido</span></button>
+          </div>
+        </header>
+        {firebaseConfigured ? <div className="secure-banner" role="status"><ShieldCheck size={15} /><strong>Ambiente protegido</strong><span>Login Google e dados sincronizados com o Firestore.</span></div> : <div className="demo-banner" role="status"><Leaf size={15} /><strong>Ambiente demonstrativo</strong><span>Configure o Firebase antes de inserir informações reais.</span></div>}
+        {dataError && <div className="data-error" role="alert"><X size={15} /><strong>Falha ao sincronizar:</strong><span>{dataError}</span></div>}
+        {databaseEmpty && <div className="database-empty"><div><strong>Banco conectado e vazio</strong><span>Você pode iniciar os cadastros do zero ou carregar os dados fictícios para validar o fluxo.</span></div><button className="secondary-button" disabled={seeding} onClick={() => void seedDemo()}>{seeding ? "Carregando..." : "Carregar dados demonstrativos"}</button></div>}
+        <div className="page">{content}</div>
+      </main>
       <nav className="mobile-nav" aria-label="Navegação móvel"><button className={view === "dashboard" ? "mobile-nav__active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard size={21} /><span>Início</span></button><button className={view === "orders" ? "mobile-nav__active" : ""} onClick={() => navigate("orders")}><ClipboardList size={21} /><span>Pedidos</span></button><button className="mobile-create" aria-label="Novo pedido" onClick={startNewOrder}><Plus size={25} /></button><button className={view === "operation" ? "mobile-nav__active" : ""} onClick={() => navigate("operation")}><Truck size={21} /><span>Operação</span></button><button onClick={() => setMenuOpen(true)}><Menu size={21} /><span>Mais</span></button></nav>
     </div>
   );

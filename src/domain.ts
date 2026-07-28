@@ -11,6 +11,7 @@ export type Product = {
   costReference: number;
   saleReference: number;
   aliases?: string[];
+  supplierIds?: string[];
 };
 
 export type Client = {
@@ -83,9 +84,11 @@ export type PurchaseRecord = {
   id: string;
   number: string;
   date: string;
+  supplierId?: string;
   supplier: string;
   total: number;
   status: PaymentStatus;
+  source?: "allocation" | "manual";
 };
 
 export type OperationDay = {
@@ -95,15 +98,15 @@ export type OperationDay = {
 };
 
 export const products: Product[] = [
-  { id: "tomate", code: "001", name: "Tomate italiano", category: "Hortaliças", unit: "kg", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"] },
-  { id: "batata", code: "002", name: "Batata lavada", category: "Tubérculos", unit: "kg", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"] },
-  { id: "cebola", code: "003", name: "Cebola nacional", category: "Hortaliças", unit: "kg", costReference: 3.8, saleReference: 5.2, aliases: ["cebola"] },
-  { id: "banana", code: "004", name: "Banana nanica", category: "Frutas", unit: "cx", costReference: 28, saleReference: 38, aliases: ["banana", "banana nanica"] },
-  { id: "alface", code: "005", name: "Alface crespa", category: "Folhas", unit: "un", costReference: 2.1, saleReference: 3.2, aliases: ["alface", "alface crespa"] },
-  { id: "couve", code: "006", name: "Couve manteiga", category: "Folhas", unit: "maço", costReference: 2.4, saleReference: 3.8, aliases: ["couve", "couve manteiga"] },
-  { id: "laranja", code: "007", name: "Laranja pera", category: "Frutas", unit: "kg", costReference: 2.9, saleReference: 4.1, aliases: ["laranja", "laranja pera"] },
-  { id: "maca", code: "008", name: "Maçã gala", category: "Frutas", unit: "cx", costReference: 92, saleReference: 118, aliases: ["maca", "maça", "maçã", "maca gala"] },
-  { id: "uva", code: "009", name: "Uva vitória", category: "Frutas", unit: "cx", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"] },
+  { id: "tomate", code: "001", name: "Tomate italiano", category: "Hortaliças", unit: "kg", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"], supplierIds: ["boa-colheita", "vale-verde"] },
+  { id: "batata", code: "002", name: "Batata lavada", category: "Tubérculos", unit: "kg", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"], supplierIds: ["vale-verde"] },
+  { id: "cebola", code: "003", name: "Cebola nacional", category: "Hortaliças", unit: "kg", costReference: 3.8, saleReference: 5.2, aliases: ["cebola"], supplierIds: ["boa-colheita", "vale-verde"] },
+  { id: "banana", code: "004", name: "Banana nanica", category: "Frutas", unit: "cx", costReference: 28, saleReference: 38, aliases: ["banana", "banana nanica"], supplierIds: ["vale-verde", "nova-safra"] },
+  { id: "alface", code: "005", name: "Alface crespa", category: "Folhas", unit: "un", costReference: 2.1, saleReference: 3.2, aliases: ["alface", "alface crespa"], supplierIds: ["boa-colheita"] },
+  { id: "couve", code: "006", name: "Couve manteiga", category: "Folhas", unit: "maço", costReference: 2.4, saleReference: 3.8, aliases: ["couve", "couve manteiga"], supplierIds: ["boa-colheita"] },
+  { id: "laranja", code: "007", name: "Laranja pera", category: "Frutas", unit: "kg", costReference: 2.9, saleReference: 4.1, aliases: ["laranja", "laranja pera"], supplierIds: ["vale-verde", "nova-safra"] },
+  { id: "maca", code: "008", name: "Maçã gala", category: "Frutas", unit: "cx", costReference: 92, saleReference: 118, aliases: ["maca", "maça", "maçã", "maca gala"], supplierIds: ["nova-safra"] },
+  { id: "uva", code: "009", name: "Uva vitória", category: "Frutas", unit: "cx", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"], supplierIds: ["nova-safra"] },
 ];
 
 export const clients: Client[] = [
@@ -146,6 +149,45 @@ export const orderSubtotal = (order: Pick<Order, "items">) => order.items.reduce
 export const orderTotal = (order: Pick<Order, "items" | "adjustment">) => orderSubtotal(order) + order.adjustment;
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+export const parseProductList = (text: string): { products: Product[]; errors: string[] } => {
+  const imported: Product[] = [];
+  const errors: string[] = [];
+  const timestamp = Date.now();
+  text.split(/\r?\n/).forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    if (index === 0 && normalize(line).startsWith("nome") && normalize(line).includes("numero")) return;
+    const match = line.match(/^\s*(.*?)\s*[,;]\s*([^,;]+)\s*[,;]\s*(.*?)\s*[,;]\s*(kg|cx|un|ma[cç]o)\s*[,;]\s*(\d+(?:[.,]\d+)?)\s*[,;]\s*(\d+(?:[.,]\d+)?)\s*$/i);
+    if (!match) {
+      errors.push(`Linha ${index + 1}: use Nome, Número, Categoria, Unidade, Custo, Venda.`);
+      return;
+    }
+    const [, rawName, rawCode, rawCategory, rawUnit, rawCost, rawSale] = match;
+    const name = rawName.trim();
+    const code = rawCode.trim();
+    const unit = normalize(rawUnit) === "maco" ? "maço" : normalize(rawUnit) as Unit;
+    const costReference = Number(rawCost.replace(",", "."));
+    const saleReference = Number(rawSale.replace(",", "."));
+    if (!name || !code || !Number.isFinite(costReference) || !Number.isFinite(saleReference)) {
+      errors.push(`Linha ${index + 1}: há um campo obrigatório inválido.`);
+      return;
+    }
+    const slug = normalize(`${code}-${name}`).replace(/\s+/g, "-");
+    imported.push({
+      id: `product-${slug}-${timestamp}-${index}`,
+      code,
+      name,
+      category: rawCategory.trim(),
+      unit,
+      costReference,
+      saleReference,
+      aliases: [name],
+      supplierIds: [],
+    });
+  });
+  return { products: imported, errors };
+};
 
 const levenshtein = (left: string, right: string) => {
   const matrix = Array.from({ length: right.length + 1 }, (_, row) => [row]);
@@ -204,7 +246,7 @@ export const printOrder = (order: Order) => openPrintDocument(`Pedido ${order.nu
   <div class="footer">Documento operacional demonstrativo · Gerado pelo sistema Zeca Hortifruti</div>
 `);
 
-export const printLoadSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers) => {
+const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
   orders.forEach((order) => order.items.forEach((line) => {
     const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
@@ -212,19 +254,57 @@ export const printLoadSheet = (orders: Order[], allocations: PurchaseAllocation[
     current.customers.push(`${order.customer}: ${line.quantity} ${line.unit}`);
     grouped.set(line.productId, current);
   }));
-  return openPrintDocument("Folha de compra, separação e carregamento", `
-    <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>Compra, separação e carregamento</h1></div><strong>Entrega ${escapeHtml(formatDate(orders[0]?.deliveryDate ?? "2026-07-22"))}</strong></header>
+  const documentTitle = includeCosts ? "Compras do dia" : "Carregamento do dia";
+  return openPrintDocument(documentTitle, `
+    <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>${documentTitle}</h1></div><strong>Entrega ${escapeHtml(formatDate(orders[0]?.deliveryDate ?? ""))}</strong></header>
     <div class="meta"><div><span>Pedidos</span><strong>${orders.length}</strong></div><div><span>Clientes</span><strong>${new Set(orders.map((order) => order.customer)).size}</strong></div><div><span>Conferência</span><strong>CEASA</strong></div></div>
-    <table><thead><tr><th>Comprar</th><th>Produto</th><th>Total do dia</th><th>Comprar em</th><th>Separar para</th><th>Carregado</th></tr></thead><tbody>${Array.from(grouped.values()).map((line) => {
+    <table><thead><tr><th>${includeCosts ? "Comprar" : "Conferir"}</th><th>Produto</th><th>Total do dia</th><th>${includeCosts ? "Comprar em" : "Retirar em"}</th><th>Separar para</th><th>Carregado</th></tr></thead><tbody>${Array.from(grouped.values()).map((line) => {
       const purchases = allocations.filter((allocation) => allocation.productId === line.productId && allocation.deliveryDate === orders[0]?.deliveryDate && allocation.quantity > 0);
       const supplierLines = purchases.length ? purchases.map((allocation) => {
         const supplier = supplierCatalog.find((candidate) => candidate.id === allocation.supplierId)?.name ?? "Fornecedor não informado";
-        return `${supplier}: ${allocation.quantity} ${line.unit} · ${money(allocation.unitCost)}/${line.unit}`;
+        return includeCosts
+          ? `${supplier}: ${allocation.quantity} ${line.unit} · ${money(allocation.unitCost)}/${line.unit}`
+          : `${supplier}: ${allocation.quantity} ${line.unit}`;
       }) : ["A definir"];
       return `<tr><td><span class="check"></span></td><td><strong>${escapeHtml(line.name)}</strong></td><td><strong>${escapeHtml(line.total)} ${escapeHtml(line.unit)}</strong></td><td class="supplier-breakdown">${supplierLines.map(escapeHtml).join("<br>")}</td><td class="customer-breakdown">${line.customers.map(escapeHtml).join("<br>")}</td><td><span class="check"></span></td></tr>`;
     }).join("")}</tbody></table>
-    <div class="footer">Use esta folha para comprar, separar por cliente e conferir o carregamento antes da saída.</div>
+    <div class="footer">${includeCosts ? "Use esta folha para comprar, registrar custos e separar por cliente." : "Folha sem valores de compra para separação e conferência do carregamento."}</div>
   `);
+};
+
+export const printPurchaseSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers) => printDaySheet(orders, allocations, supplierCatalog, true);
+export const printLoadingSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers) => printDaySheet(orders, allocations, supplierCatalog, false);
+export const printLoadSheet = printPurchaseSheet;
+
+export const buildPurchaseHistory = (allocations: PurchaseAllocation[], supplierCatalog: Supplier[], savedRecords: PurchaseRecord[]): PurchaseRecord[] => {
+  const grouped = new Map<string, { date: string; supplierId: string; total: number }>();
+  allocations.filter((allocation) => allocation.quantity > 0 && allocation.supplierId).forEach((allocation) => {
+    const id = `purchase-${allocation.deliveryDate}-${allocation.supplierId}`;
+    const current = grouped.get(id) ?? { date: allocation.deliveryDate, supplierId: allocation.supplierId, total: 0 };
+    current.total += allocation.quantity * allocation.unitCost;
+    grouped.set(id, current);
+  });
+  const savedById = new Map(savedRecords.map((record) => [record.id, record]));
+  const matchedSavedIds = new Set<string>();
+  const derived = Array.from(grouped.entries()).map(([id, group]) => {
+    const supplier = supplierCatalog.find((candidate) => candidate.id === group.supplierId);
+    const saved = savedById.get(id) ?? savedRecords.find((record) =>
+      record.date === group.date
+      && (record.supplierId === group.supplierId || normalize(record.supplier) === normalize(supplier?.name ?? "")));
+    if (saved) matchedSavedIds.add(saved.id);
+    return {
+      id: saved?.id ?? id,
+      number: saved?.number ?? `C-${group.date.split("-").join("").slice(2)}-${group.supplierId.slice(0, 4).toUpperCase()}`,
+      date: group.date,
+      supplierId: group.supplierId,
+      supplier: supplier?.name ?? saved?.supplier ?? "Fornecedor não informado",
+      total: group.total,
+      status: saved?.status ?? "Pendente",
+      source: "allocation" as const,
+    };
+  });
+  const manual = savedRecords.filter((record) => record.source !== "allocation" && !matchedSavedIds.has(record.id) && !grouped.has(record.id));
+  return [...derived, ...manual].sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number, undefined, { numeric: true }));
 };
 
 const csvCell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
