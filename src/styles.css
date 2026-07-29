@@ -420,6 +420,7 @@ a { color: inherit; text-decoration: none; }
 .print-summary-button { width: 100%; margin-top: 8px; }
 
 .summary-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 15px; }
+.summary-strip--four { grid-template-columns: repeat(4, 1fr); }
 .summary-strip > div { display: flex; flex-direction: column; padding: 15px 17px; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--shadow); }
 .summary-strip span { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
 .summary-strip strong { margin-top: 6px; font-size: 17px; }
@@ -467,7 +468,7 @@ a { color: inherit; text-decoration: none; }
 .allocation-row > strong { align-self: center; text-align: right; font-size: 10px; }
 .add-allocation { margin: 2px 13px 10px; }
 .purchase-history { overflow-x: auto; }
-.purchase-history__head, .purchase-history > div:not(.purchase-history__head) { min-width: 760px; display: grid; grid-template-columns: .65fr .8fr 1.5fr .9fr .85fr 35px; align-items: center; gap: 12px; padding: 0 17px; }
+.purchase-history__head, .purchase-history > div:not(.purchase-history__head) { min-width: 900px; display: grid; grid-template-columns: .65fr .75fr 1.4fr .85fr .8fr .7fr 35px; align-items: center; gap: 12px; padding: 0 17px; }
 .purchase-history__head { min-height: 36px; color: #8b9490; background: #fafbfa; font-size: 8px; font-weight: 800; text-transform: uppercase; }
 .purchase-history > div:not(.purchase-history__head) { min-height: 64px; border-top: 1px solid var(--line); font-size: 10px; }
 .purchase-item-filters { flex-wrap: wrap; }
