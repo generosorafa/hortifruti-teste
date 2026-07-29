@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   Bell,
   Boxes,
   Building2,
@@ -39,6 +40,7 @@ import {
   Sun,
   Trash2,
   Truck,
+  TrendingUp,
   UserPlus,
   UsersRound,
   WalletCards,
@@ -94,14 +96,15 @@ import {
   type FirebaseUser,
 } from "./firebase";
 
-type ViewId = "dashboard" | "order-form" | "orders" | "operation" | "purchases" | "clients" | "products" | "suppliers" | "company";
+type ViewId = "dashboard" | "analytics" | "order-form" | "orders" | "operation" | "purchases" | "clients" | "products" | "suppliers" | "company";
 type Theme = "light" | "dark";
 type Navigate = (view: ViewId) => void;
 type OperationStagesByDate = Record<string, boolean[]>;
-type GlobalSearchResult = { id: string; view: Exclude<ViewId, "dashboard" | "order-form" | "operation" | "purchases">; label: string; title: string; detail: string; query: string };
+type GlobalSearchResult = { id: string; view: Exclude<ViewId, "dashboard" | "analytics" | "order-form" | "operation" | "purchases">; label: string; title: string; detail: string; query: string };
 
 const routes: Record<ViewId, string> = {
   dashboard: "inicio",
+  analytics: "dashboard",
   "order-form": "novo-pedido",
   orders: "pedidos",
   operation: "operacao",
@@ -119,6 +122,7 @@ const viewFromHash = () => {
 
 const navigation = [
   { id: "dashboard" as ViewId, label: "Início", icon: LayoutDashboard },
+  { id: "analytics" as ViewId, label: "Dashboard", icon: BarChart3 },
   { id: "order-form" as ViewId, label: "Novo / editar pedido", icon: Plus },
   { id: "orders" as ViewId, label: "Pedidos e recebimentos", icon: ClipboardList },
   { id: "operation" as ViewId, label: "Operação do dia", icon: Truck },
@@ -323,6 +327,79 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
   );
 }
 
+function AnalyticsDashboard({ orders, purchaseHistory, selectedDate }: { orders: Order[]; purchaseHistory: PurchaseRecord[]; selectedDate: string }) {
+  const availableMonths = Array.from(new Set([
+    ...orders.map((order) => order.deliveryDate.slice(0, 7)),
+    ...purchaseHistory.map((purchase) => purchase.date.slice(0, 7)),
+  ])).filter(Boolean).sort().reverse();
+  const selectedMonth = selectedDate.slice(0, 7);
+  const [period, setPeriod] = useState(availableMonths.includes(selectedMonth) ? selectedMonth : availableMonths[0] ?? "Todos");
+  const visibleOrders = orders.filter((order) => period === "Todos" || order.deliveryDate.startsWith(period));
+  const visiblePurchases = purchaseHistory.filter((purchase) => period === "Todos" || purchase.date.startsWith(period));
+  const sales = visibleOrders.reduce((sum, order) => sum + orderTotal(order), 0);
+  const costs = visiblePurchases.reduce((sum, purchase) => sum + purchase.total, 0);
+  const grossResult = sales - costs;
+  const grossMargin = sales ? (grossResult / sales) * 100 : 0;
+  const receivable = visibleOrders.filter((order) => order.paymentStatus !== "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
+  const payable = visiblePurchases.filter((purchase) => purchase.status !== "Pago").reduce((sum, purchase) => sum + purchase.total, 0);
+  const paidSales = visibleOrders.filter((order) => order.paymentStatus === "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
+  const ticket = visibleOrders.length ? sales / visibleOrders.length : 0;
+  const pointMap = new Map<string, { key: string; label: string; sales: number; costs: number }>();
+  const pointKey = (date: string) => period === "Todos" ? date.slice(0, 7) : date;
+  const pointLabel = (key: string) => period === "Todos"
+    ? new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(`${key}-01T12:00:00Z`)).replace(".", "")
+    : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", timeZone: "UTC" }).format(new Date(`${key}T12:00:00Z`)).replace(".", "");
+  const addPoint = (date: string, field: "sales" | "costs", value: number) => {
+    const key = pointKey(date);
+    const current = pointMap.get(key) ?? { key, label: pointLabel(key), sales: 0, costs: 0 };
+    current[field] += value;
+    pointMap.set(key, current);
+  };
+  visibleOrders.forEach((order) => addPoint(order.deliveryDate, "sales", orderTotal(order)));
+  visiblePurchases.forEach((purchase) => addPoint(purchase.date, "costs", purchase.total));
+  const timeline = Array.from(pointMap.values()).sort((left, right) => left.key.localeCompare(right.key));
+  const timelineMaximum = Math.max(1, ...timeline.flatMap((point) => [point.sales, point.costs]));
+  const clientMap = new Map<string, number>();
+  visibleOrders.forEach((order) => clientMap.set(order.customer, (clientMap.get(order.customer) ?? 0) + orderTotal(order)));
+  const clients = Array.from(clientMap, ([name, total]) => ({ name, total })).sort((left, right) => right.total - left.total).slice(0, 6);
+  const clientMaximum = Math.max(1, ...clients.map((client) => client.total));
+  const productMap = new Map<string, { name: string; total: number; orders: Set<string> }>();
+  visibleOrders.forEach((order) => order.items.forEach((line) => {
+    const current = productMap.get(line.productId) ?? { name: line.name, total: 0, orders: new Set<string>() };
+    current.total += line.quantity * line.unitPrice;
+    current.orders.add(order.id);
+    productMap.set(line.productId, current);
+  }));
+  const products = Array.from(productMap, ([id, value]) => ({ id, ...value })).sort((left, right) => right.total - left.total).slice(0, 6);
+  const periodDescription = period === "Todos" ? "Todo o histórico disponível" : monthLabel(period);
+  return (
+    <section className="analytics-page">
+      <PageTitle eyebrow="INDICADORES FINANCEIROS" title="Dashboard" description="Acompanhe vendas, compras, resultado bruto e pendências no período escolhido." action={<label className="analytics-period"><CalendarDays size={17} /><span>Período</span><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="Todos">Todo o histórico</option>{availableMonths.map((month) => <option value={month} key={month}>{monthLabel(month)}</option>)}</select></label>} />
+      <section className="analytics-metrics">
+        <article className="analytics-metric"><span className="metric-icon metric-icon--green"><ReceiptText size={20} /></span><div><small>Vendas</small><strong>{money(sales)}</strong><b>{visibleOrders.length} pedido(s)</b></div></article>
+        <article className="analytics-metric"><span className="metric-icon metric-icon--orange"><ShoppingBasket size={20} /></span><div><small>Custos de compras</small><strong>{money(costs)}</strong><b>{visiblePurchases.length} compra(s)</b></div></article>
+        <article className={`analytics-metric ${grossResult < 0 ? "analytics-metric--negative" : ""}`}><span className="metric-icon metric-icon--blue"><TrendingUp size={20} /></span><div><small>Resultado bruto</small><strong>{money(grossResult)}</strong><b>Vendas menos compras</b></div></article>
+        <article className={`analytics-metric ${grossMargin < 0 ? "analytics-metric--negative" : ""}`}><span className="metric-icon metric-icon--violet"><BarChart3 size={20} /></span><div><small>Margem bruta</small><strong>{grossMargin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong><b>Antes das despesas fixas</b></div></article>
+      </section>
+      <section className="finance-mini-metrics" aria-label="Resumo do período">
+        <div><span>Ticket médio</span><strong>{money(ticket)}</strong></div>
+        <div><span>Vendas já pagas</span><strong>{money(paidSales)}</strong></div>
+        <div className="finance-mini-metric--warning"><span>A receber</span><strong>{money(receivable)}</strong></div>
+        <div className="finance-mini-metric--warning"><span>A pagar</span><strong>{money(payable)}</strong></div>
+      </section>
+      <article className="panel finance-chart-card">
+        <div className="panel__header"><div><h3>Vendas x custos</h3><p>{period === "Todos" ? "Comparação mensal" : "Comparação diária"} · {periodDescription}</p></div><div className="finance-chart-legend"><span><i className="finance-chart-legend__sales" />Vendas</span><span><i className="finance-chart-legend__costs" />Custos</span></div></div>
+        {timeline.length ? <div className="finance-chart-scroll"><div className="finance-chart-plot" style={{ minWidth: `${Math.max(560, timeline.length * 76)}px` }}>{timeline.map((point) => <div className="finance-chart-point" key={point.key} aria-label={`${point.label}: vendas ${money(point.sales)}, custos ${money(point.costs)}`}><div className="finance-chart-bars"><span className="finance-chart-bar finance-chart-bar--sales" style={{ height: point.sales ? `${Math.max(4, (point.sales / timelineMaximum) * 100)}%` : "2px" }} title={`Vendas: ${money(point.sales)}`} /><span className="finance-chart-bar finance-chart-bar--costs" style={{ height: point.costs ? `${Math.max(4, (point.costs / timelineMaximum) * 100)}%` : "2px" }} title={`Custos: ${money(point.costs)}`} /></div><small>{point.label}</small></div>)}</div></div> : <div className="dashboard-empty">Ainda não há vendas ou compras neste período.</div>}
+      </article>
+      <section className="analytics-ranking-grid">
+        <article className="panel analytics-ranking"><div className="panel__header"><div><h3>Clientes com maior venda</h3><p>Participação no faturamento filtrado</p></div></div><div className="analytics-ranking-list">{clients.map((client, index) => <div key={client.name}><span className="analytics-rank">{index + 1}</span><div><strong>{client.name}</strong><span><i style={{ width: `${(client.total / clientMaximum) * 100}%` }} /></span></div><b>{money(client.total)}</b></div>)}{!clients.length && <div className="dashboard-empty">Nenhum cliente no período.</div>}</div></article>
+        <article className="panel analytics-ranking"><div className="panel__header"><div><h3>Produtos com maior venda</h3><p>Valor vendido por produto</p></div></div><div className="analytics-product-list">{products.map((product, index) => <div key={product.id}><span className="analytics-rank">{index + 1}</span><div><strong>{product.name}</strong><small>{product.orders.size} pedido(s)</small></div><b>{money(product.total)}</b></div>)}{!products.length && <div className="dashboard-empty">Nenhum produto no período.</div>}</div></article>
+      </section>
+      <p className="analytics-note">O resultado e a margem são brutos: usam as vendas e compras registradas no período e não descontam impostos, frete, salários ou outras despesas da empresa.</p>
+    </section>
+  );
+}
+
 function OrderForm({ order, nextNumber, navigate, onSave, catalogClients, catalogProducts, company }: { order?: Order; nextNumber: string; navigate: Navigate; onSave: (order: Order) => void; catalogClients: Client[]; catalogProducts: Product[]; company: CompanyProfile }) {
   const today = localIsoDate();
   const [customer, setCustomer] = useState(order?.customer ?? catalogClients[0]?.name ?? "");
@@ -339,6 +416,7 @@ function OrderForm({ order, nextNumber, navigate, onSave, catalogClients, catalo
   const [manualOpen, setManualOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [parsedLines, setParsedLines] = useState<ParsedLine[]>([]);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const sortedCatalogProducts = useMemo(() => catalogProducts.slice().sort((left, right) => (left.code || "\uffff").localeCompare(right.code || "\uffff", "pt-BR", { numeric: true }) || left.name.localeCompare(right.name, "pt-BR")), [catalogProducts]);
   const matchingProducts = useMemo(() => {
     const query = normalizeSearch(manualQuery.trim());
@@ -374,13 +452,27 @@ function OrderForm({ order, nextNumber, navigate, onSave, catalogClients, catalo
   return (
     <>
       <PageTitle eyebrow={order ? `EDITANDO ${order.number}` : "NOVO PEDIDO"} title={order ? `Editar pedido de ${order.customer}` : "Incluir pedido"} description="Cole a mensagem do WhatsApp ou acrescente os produtos manualmente." action={<button className="secondary-button" onClick={() => navigate("orders")}><ArrowLeft size={17} />Voltar aos pedidos</button>} />
-      <form className="form-layout order-form-layout" onSubmit={save}>
+      <form className="form-layout order-form-layout" id="order-form" onSubmit={save}>
         <div className="order-form-main">
           <section className="panel form-card"><div className="form-section-title"><span>1</span><div><h2>Cliente e datas</h2><p>Em pedidos novos, usamos hoje como data do pedido e amanhã como entrega; ambas continuam editáveis.</p></div></div><div className="form-grid"><label>Cliente<select value={customer} onChange={(event) => setCustomer(event.target.value)}>{catalogClients.map((client) => <option key={client.id}>{client.name}</option>)}</select></label><label>Data do pedido<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Data da entrega<input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label><label>Situação do pagamento<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as PaymentStatus)}><option>Pendente</option><option>Parcial</option><option>Pago</option></select></label></div></section>
           <section className="panel form-card import-card"><div className="form-section-title"><span>2</span><div><h2>Importar texto do WhatsApp</h2><p>Cole a mensagem do cliente, com um item por linha.</p></div></div><div className="paste-order"><div><MessageSquareText size={20} /><textarea aria-label="Texto do pedido recebido pelo WhatsApp" value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={6} /></div><button className="secondary-button" type="button" onClick={interpretText} disabled={!pasteText.trim()}><ClipboardCheck size={17} />Interpretar lista</button></div>{parsedLines.length > 0 && <div className="parsed-review"><div className="parsed-review__heading"><strong>Revise o que foi identificado</strong><span>Itens em amarelo precisam de confirmação.</span></div>{parsedLines.map((line) => <div className={line.needsReview ? "parsed-line parsed-line--review" : "parsed-line"} key={line.id}><span>{line.quantity}</span><code>{line.raw}</code><select aria-label={`Produto correspondente a ${line.raw}`} value={line.productId} onChange={(event) => setParsedLines((current) => current.map((candidate) => candidate.id === line.id ? { ...candidate, productId: event.target.value, needsReview: false } : candidate))}><option value="">Selecione o produto correto</option>{sortedCatalogProducts.map((product) => <option value={product.id} key={product.id}>{product.code} · {product.name}</option>)}</select>{line.productId && !line.needsReview ? <CheckCircle2 size={18} /> : <span className="review-dot">!</span>}</div>)}<button className="primary-button" type="button" disabled={parsedLines.some((line) => !line.productId)} onClick={addParsedLines}><Plus size={17} />Adicionar itens revisados</button></div>}</section>
           <section className="panel form-card"><div className="form-section-title"><span>3</span><div><h2>Produtos do pedido</h2><p>Pesquise pelo nome ou número; a unidade vem do cadastro e continua editável.</p></div></div><div className="manual-add"><div className="product-combobox"><Search size={17} /><input role="combobox" aria-expanded={manualOpen} aria-controls="product-options" aria-label="Pesquisar produto" value={manualQuery} placeholder="Digite o nome ou número do produto" onFocus={() => setManualOpen(true)} onBlur={() => setTimeout(() => setManualOpen(false), 120)} onChange={(event) => { setManualQuery(event.target.value); setManualProductId(""); setManualOpen(true); }} />{manualOpen && <div className="product-options" id="product-options" role="listbox">{matchingProducts.length ? matchingProducts.map((product) => <button type="button" role="option" aria-selected={manualProductId === product.id} key={product.id} onMouseDown={(event) => event.preventDefault()} onClick={() => { setManualProductId(product.id); setManualQuery(product.name); setManualOpen(false); }}><span><small>{product.code}</small><strong>{product.name}</strong></span><b>{money(product.saleReference)}/{product.unit}</b></button>) : <div className="product-option-empty">Nenhum produto cadastrado encontrado.</div>}</div>}</div><button className="secondary-button" type="button" disabled={!manualProductId} onClick={() => { addProduct(manualProductId); setManualProductId(""); setManualQuery(""); }}><Plus size={17} />Adicionar produto</button></div>{items.length ? <div className="line-editor"><div className="line-editor__head"><span>Produto</span><span>Qtd.</span><span>Un.</span><span>Valor unitário</span><span>Total</span><span>Peso conf.</span><span /></div>{items.map((line) => <div className="line-editor__row" key={line.id}><div><strong>{line.name}</strong><small>Preço salvo neste pedido</small></div><DecimalInput ariaLabel={`Quantidade de ${line.name}`} value={line.quantity} onValueChange={(value) => updateItem(line.id, "quantity", value)} /><select aria-label={`Unidade de ${line.name}`} value={line.unit} onChange={(event) => updateItem(line.id, "unit", event.target.value as Unit)}><option>kg</option><option>cx</option><option>un</option><option>maço</option></select><DecimalInput ariaLabel={`Valor unitário de ${line.name}`} value={line.unitPrice} onValueChange={(value) => updateItem(line.id, "unitPrice", value)} /><strong>{money(line.quantity * line.unitPrice)}</strong><DecimalInput ariaLabel={`Peso conferido de ${line.name}`} value={line.confirmedWeight} placeholder="Depois" onValueChange={(value) => updateItem(line.id, "confirmedWeight", value)} /><button className="icon-button danger-icon" type="button" aria-label={`Remover ${line.name}`} onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== line.id))}><Trash2 size={17} /></button></div>)}</div> : <div className="empty-state"><PackageOpen size={24} /><strong>Nenhum produto incluído</strong><span>Cole a mensagem do cliente ou escolha um produto acima.</span></div>}</section>
         </div>
-        <aside className="panel order-summary order-summary--complete"><h2>Resumo do pedido</h2><p>{order ? order.number : "Numeração automática ao salvar"}</p><div className="summary-client"><UsersRound size={18} /><div><small>Cliente</small><strong>{customer}</strong></div></div><div className="summary-figures"><div><span>Produtos</span><strong>{items.length}</strong></div><div><span>Subtotal</span><strong>{money(orderSubtotal(draftOrder))}</strong></div></div><label className="summary-field">Ajuste no valor total<DecimalInput ariaLabel="Ajuste no valor total" value={adjustment} allowNegative onValueChange={setAdjustment} /><small>Use valor positivo para acréscimo e negativo para desconto.</small></label><label className="summary-field">Forma de pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select></label><label className="summary-field">Número / referência do pagamento<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Ex.: transferência 84521" /><small>Deixe em branco enquanto o cliente não pagar.</small></label><label className="summary-field">Observações<textarea rows={4} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Alterações, combinações e advertências..." /></label><div className="summary-total"><span>Total do pedido</span><strong>{money(orderTotal(draftOrder))}</strong></div><button className="primary-button primary-button--wide" type="submit" disabled={!items.length}><Save size={18} />{order ? "Salvar alterações" : "Finalizar pedido"}</button>{order && <button className="secondary-button print-summary-button" type="button" onClick={() => printOrder(draftOrder, company)}><Printer size={17} />Imprimir pedido</button>}<small className="summary-note">Os valores deste pedido ficam congelados; alterações futuras no cadastro do produto não mudam este histórico.</small></aside>
+        {summaryOpen && <button className="order-summary-backdrop" type="button" aria-label="Fechar resumo do pedido" onClick={() => setSummaryOpen(false)} />}
+        <aside className={`panel order-summary order-summary--complete ${summaryOpen ? "order-summary--open" : ""}`} aria-label="Resumo do pedido">
+          <div className="order-summary__title"><div><h2>Resumo do pedido</h2><p>{order ? order.number : "Numeração automática ao salvar"}</p></div><button className="icon-button order-summary__close" type="button" aria-label="Fechar resumo" onClick={() => setSummaryOpen(false)}><X size={19} /></button></div>
+          <div className="summary-client"><UsersRound size={18} /><div><small>Cliente</small><strong>{customer}</strong></div></div>
+          <div className="summary-figures"><div><span>Produtos</span><strong>{items.length}</strong></div><div><span>Subtotal</span><strong>{money(orderSubtotal(draftOrder))}</strong></div></div>
+          <label className="summary-field">Ajuste no valor total<DecimalInput ariaLabel="Ajuste no valor total" value={adjustment} allowNegative onValueChange={setAdjustment} /><small>Use valor positivo para acréscimo e negativo para desconto.</small></label>
+          <label className="summary-field">Forma de pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><option>Não informado</option><option>Pix</option><option>Dinheiro</option><option>Boleto</option><option>Transferência</option></select></label>
+          <label className="summary-field">Número / referência do pagamento<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Ex.: transferência 84521" /><small>Deixe em branco enquanto o cliente não pagar.</small></label>
+          <label className="summary-field">Observações<textarea rows={4} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Alterações, combinações e advertências..." /></label>
+          <div className="summary-total"><span>Total do pedido</span><strong>{money(orderTotal(draftOrder))}</strong></div>
+          <button className="primary-button primary-button--wide" type="submit" disabled={!items.length}><Save size={18} />{order ? "Salvar alterações" : "Finalizar pedido"}</button>
+          {order && <button className="secondary-button print-summary-button" type="button" onClick={() => printOrder(draftOrder, company)}><Printer size={17} />Imprimir pedido</button>}
+          <small className="summary-note">Os valores deste pedido ficam congelados; alterações futuras no cadastro do produto não mudam este histórico.</small>
+        </aside>
+        <div className="mobile-order-summary" aria-label="Resumo rápido do pedido"><button type="button" onClick={() => setSummaryOpen(true)} aria-expanded={summaryOpen}><span><small>{items.length} produto(s) · {customer || "Sem cliente"}</small><strong>{money(orderTotal(draftOrder))}</strong></span><b>Ver resumo</b></button><button className="primary-button" type="submit" disabled={!items.length}><Save size={17} /><span>{order ? "Salvar" : "Finalizar"}</span></button></div>
       </form>
     </>
   );
@@ -780,6 +872,7 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   const nextOrderNumber = `#${orders.length ? Math.max(...orders.map((order) => Number(order.number.replace(/\D/g, "")) || 0)) + 1 : 1}`;
   let content: ReactNode;
   if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} supplierCatalog={supplierStore.records} purchaseHistory={purchaseHistory} company={company} />;
+  else if (view === "analytics") content = <AnalyticsDashboard orders={orders} purchaseHistory={purchaseHistory} selectedDate={selectedDate} />;
   else if (view === "order-form") content = <OrderForm key={editingOrder?.number ?? "new-order"} order={editingOrder} nextNumber={nextOrderNumber} navigate={navigate} onSave={saveOrder} catalogClients={clientStore.records} catalogProducts={productStore.records} company={company} />;
   else if (view === "orders") content = <OrdersPage orders={orders} saved={savedOrder} startNewOrder={startNewOrder} editOrder={editOrder} updatePayment={updatePayment} updatePaymentMethod={updatePaymentMethod} updatePaymentReference={updatePaymentReference} company={company} externalQuery={pageSearch?.view === "orders" ? pageSearch.query : ""} />;
   else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} saveOperationStages={saveOperationStages} supplierCatalog={supplierStore.records} company={company} />;
@@ -815,7 +908,7 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
         {databaseEmpty && <div className="database-empty"><div><strong>Banco conectado e vazio</strong><span>Você pode iniciar os cadastros do zero ou carregar os dados fictícios para validar o fluxo.</span></div><button className="secondary-button" disabled={seeding} onClick={() => void seedDemo()}>{seeding ? "Carregando..." : "Carregar dados demonstrativos"}</button></div>}
         <div className="page">{content}</div>
       </main>
-      <nav className="mobile-nav" aria-label="Navegação móvel"><button className={view === "dashboard" ? "mobile-nav__active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard size={21} /><span>Início</span></button><button className={view === "orders" ? "mobile-nav__active" : ""} onClick={() => navigate("orders")}><ClipboardList size={21} /><span>Pedidos</span></button><button className="mobile-create" aria-label="Novo pedido" onClick={startNewOrder}><Plus size={25} /></button><button className={view === "operation" ? "mobile-nav__active" : ""} onClick={() => navigate("operation")}><Truck size={21} /><span>Operação</span></button><button onClick={() => setMenuOpen(true)}><Menu size={21} /><span>Mais</span></button></nav>
+      <nav className="mobile-nav" aria-label="Navegação móvel"><button className={view === "dashboard" ? "mobile-nav__active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard size={21} /><span>Início</span></button><button className={view === "orders" ? "mobile-nav__active" : ""} onClick={() => navigate("orders")}><ClipboardList size={21} /><span>Pedidos</span></button><button className="mobile-create" aria-label="Novo pedido" onClick={startNewOrder}><Plus size={25} /></button><button className={view === "operation" ? "mobile-nav__active" : ""} onClick={() => navigate("operation")}><Truck size={21} /><span>Operação</span></button><button className={view === "analytics" ? "mobile-nav__active" : ""} onClick={() => setMenuOpen(true)}><Menu size={21} /><span>Mais</span></button></nav>
     </div>
   );
 }
