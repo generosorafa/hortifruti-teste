@@ -106,6 +106,23 @@ export type PurchaseRecord = {
   source?: "allocation" | "manual";
 };
 
+export type ServiceProvider = {
+  id: string;
+  name: string;
+};
+
+export type ServiceProviderPaymentMethod = "Pix" | "Dinheiro";
+
+export type ServiceProviderPayment = {
+  id: string;
+  date: string;
+  providerId: string;
+  providerName: string;
+  reason: string;
+  amount: number;
+  paymentMethod: ServiceProviderPaymentMethod;
+};
+
 export type OperationDay = {
   id: string;
   date: string;

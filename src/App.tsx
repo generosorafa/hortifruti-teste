@@ -78,6 +78,9 @@ import {
   type Product,
   type PurchaseAllocation,
   type PurchaseRecord,
+  type ServiceProvider,
+  type ServiceProviderPayment,
+  type ServiceProviderPaymentMethod,
   type Supplier,
   type Unit,
 } from "./domain";
@@ -96,11 +99,11 @@ import {
   type FirebaseUser,
 } from "./firebase";
 
-type ViewId = "dashboard" | "analytics" | "order-form" | "orders" | "operation" | "purchases" | "clients" | "products" | "suppliers" | "company";
+type ViewId = "dashboard" | "analytics" | "order-form" | "orders" | "operation" | "purchases" | "provider-payments" | "clients" | "products" | "suppliers" | "providers" | "company";
 type Theme = "light" | "dark";
 type Navigate = (view: ViewId) => void;
 type OperationStagesByDate = Record<string, boolean[]>;
-type GlobalSearchResult = { id: string; view: Exclude<ViewId, "dashboard" | "analytics" | "order-form" | "operation" | "purchases">; label: string; title: string; detail: string; query: string };
+type GlobalSearchResult = { id: string; view: Exclude<ViewId, "dashboard" | "analytics" | "order-form" | "operation" | "purchases" | "provider-payments">; label: string; title: string; detail: string; query: string };
 
 const routes: Record<ViewId, string> = {
   dashboard: "inicio",
@@ -109,9 +112,11 @@ const routes: Record<ViewId, string> = {
   orders: "pedidos",
   operation: "operacao",
   purchases: "compras",
+  "provider-payments": "controle-prestadores",
   clients: "clientes",
   products: "produtos",
   suppliers: "fornecedores",
+  providers: "prestadores",
   company: "dados-da-empresa",
 };
 
@@ -127,12 +132,14 @@ const navigation = [
   { id: "orders" as ViewId, label: "Pedidos e recebimentos", icon: ClipboardList },
   { id: "operation" as ViewId, label: "Operação do dia", icon: Truck },
   { id: "purchases" as ViewId, label: "Compras e pagamentos", icon: ShoppingBasket },
+  { id: "provider-payments" as ViewId, label: "Controle de prestadores", icon: CircleDollarSign },
 ];
 
 const registrations = [
   { id: "clients" as ViewId, label: "Clientes", icon: UsersRound },
   { id: "products" as ViewId, label: "Produtos", icon: Boxes },
   { id: "suppliers" as ViewId, label: "Fornecedores", icon: Store },
+  { id: "providers" as ViewId, label: "Prestadores", icon: UserPlus },
   { id: "company" as ViewId, label: "Dados da empresa", icon: Building2 },
 ];
 
@@ -327,17 +334,21 @@ function Dashboard({ navigate, startNewOrder, orders, selectedDate, setSelectedD
   );
 }
 
-function AnalyticsDashboard({ orders, purchaseHistory, selectedDate }: { orders: Order[]; purchaseHistory: PurchaseRecord[]; selectedDate: string }) {
+function AnalyticsDashboard({ orders, purchaseHistory, providerPayments, selectedDate }: { orders: Order[]; purchaseHistory: PurchaseRecord[]; providerPayments: ServiceProviderPayment[]; selectedDate: string }) {
   const availableMonths = Array.from(new Set([
     ...orders.map((order) => order.deliveryDate.slice(0, 7)),
     ...purchaseHistory.map((purchase) => purchase.date.slice(0, 7)),
+    ...providerPayments.map((payment) => payment.date.slice(0, 7)),
   ])).filter(Boolean).sort().reverse();
   const selectedMonth = selectedDate.slice(0, 7);
   const [period, setPeriod] = useState(availableMonths.includes(selectedMonth) ? selectedMonth : availableMonths[0] ?? "Todos");
   const visibleOrders = orders.filter((order) => period === "Todos" || order.deliveryDate.startsWith(period));
   const visiblePurchases = purchaseHistory.filter((purchase) => period === "Todos" || purchase.date.startsWith(period));
+  const visibleProviderPayments = providerPayments.filter((payment) => period === "Todos" || payment.date.startsWith(period));
   const sales = visibleOrders.reduce((sum, order) => sum + orderTotal(order), 0);
-  const costs = visiblePurchases.reduce((sum, purchase) => sum + purchase.total, 0);
+  const purchaseCosts = visiblePurchases.reduce((sum, purchase) => sum + purchase.total, 0);
+  const providerCosts = visibleProviderPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const costs = purchaseCosts + providerCosts;
   const grossResult = sales - costs;
   const grossMargin = sales ? (grossResult / sales) * 100 : 0;
   const receivable = visibleOrders.filter((order) => order.paymentStatus !== "Pago").reduce((sum, order) => sum + orderTotal(order), 0);
@@ -357,6 +368,7 @@ function AnalyticsDashboard({ orders, purchaseHistory, selectedDate }: { orders:
   };
   visibleOrders.forEach((order) => addPoint(order.deliveryDate, "sales", orderTotal(order)));
   visiblePurchases.forEach((purchase) => addPoint(purchase.date, "costs", purchase.total));
+  visibleProviderPayments.forEach((payment) => addPoint(payment.date, "costs", payment.amount));
   const timeline = Array.from(pointMap.values()).sort((left, right) => left.key.localeCompare(right.key));
   const timelineMaximum = Math.max(1, ...timeline.flatMap((point) => [point.sales, point.costs]));
   const clientMap = new Map<string, number>();
@@ -377,7 +389,7 @@ function AnalyticsDashboard({ orders, purchaseHistory, selectedDate }: { orders:
       <PageTitle eyebrow="INDICADORES FINANCEIROS" title="Dashboard" description="Acompanhe vendas, compras, resultado bruto e pendências no período escolhido." action={<label className="analytics-period"><CalendarDays size={17} /><span>Período</span><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="Todos">Todo o histórico</option>{availableMonths.map((month) => <option value={month} key={month}>{monthLabel(month)}</option>)}</select></label>} />
       <section className="analytics-metrics">
         <article className="analytics-metric"><span className="metric-icon metric-icon--green"><ReceiptText size={20} /></span><div><small>Vendas</small><strong>{money(sales)}</strong><b>{visibleOrders.length} pedido(s)</b></div></article>
-        <article className="analytics-metric"><span className="metric-icon metric-icon--orange"><ShoppingBasket size={20} /></span><div><small>Custos de compras</small><strong>{money(costs)}</strong><b>{visiblePurchases.length} compra(s)</b></div></article>
+        <article className="analytics-metric"><span className="metric-icon metric-icon--orange"><ShoppingBasket size={20} /></span><div><small>Custos totais</small><strong>{money(costs)}</strong><b>Compras {money(purchaseCosts)} · Prestadores {money(providerCosts)}</b></div></article>
         <article className={`analytics-metric ${grossResult < 0 ? "analytics-metric--negative" : ""}`}><span className="metric-icon metric-icon--blue"><TrendingUp size={20} /></span><div><small>Resultado bruto</small><strong>{money(grossResult)}</strong><b>Vendas menos compras</b></div></article>
         <article className={`analytics-metric ${grossMargin < 0 ? "analytics-metric--negative" : ""}`}><span className="metric-icon metric-icon--violet"><BarChart3 size={20} /></span><div><small>Margem bruta</small><strong>{grossMargin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong><b>Antes das despesas fixas</b></div></article>
       </section>
@@ -395,7 +407,7 @@ function AnalyticsDashboard({ orders, purchaseHistory, selectedDate }: { orders:
         <article className="panel analytics-ranking"><div className="panel__header"><div><h3>Clientes com maior venda</h3><p>Participação no faturamento filtrado</p></div></div><div className="analytics-ranking-list">{clients.map((client, index) => <div key={client.name}><span className="analytics-rank">{index + 1}</span><div><strong>{client.name}</strong><span><i style={{ width: `${(client.total / clientMaximum) * 100}%` }} /></span></div><b>{money(client.total)}</b></div>)}{!clients.length && <div className="dashboard-empty">Nenhum cliente no período.</div>}</div></article>
         <article className="panel analytics-ranking"><div className="panel__header"><div><h3>Produtos com maior venda</h3><p>Valor vendido por produto</p></div></div><div className="analytics-product-list">{products.map((product, index) => <div key={product.id}><span className="analytics-rank">{index + 1}</span><div><strong>{product.name}</strong><small>{product.orders.size} pedido(s)</small></div><b>{money(product.total)}</b></div>)}{!products.length && <div className="dashboard-empty">Nenhum produto no período.</div>}</div></article>
       </section>
-      <p className="analytics-note">O resultado e a margem são brutos: usam as vendas e compras registradas no período e não descontam impostos, frete, salários ou outras despesas da empresa.</p>
+      <p className="analytics-note">O resultado e a margem são brutos: usam as vendas, compras e pagamentos de prestadores registrados no período e não descontam impostos, frete, salários fixos ou outras despesas da empresa.</p>
     </section>
   );
 }
@@ -700,6 +712,117 @@ function RegistryPage({ type, records, onSave, onDelete, suppliers = [], onImpor
   );
 }
 
+function ServiceProvidersPage({ providers, onSave, onDelete, externalQuery = "" }: { providers: ServiceProvider[]; onSave: (provider: ServiceProvider) => void; onDelete: (id: string) => void; externalQuery?: string }) {
+  const [editing, setEditing] = useState<ServiceProvider | null>(null);
+  const [query, setQuery] = useState(externalQuery);
+  const [descending, setDescending] = useState(false);
+  useEffect(() => setQuery(externalQuery), [externalQuery]);
+  const visible = providers
+    .filter((provider) => normalizeSearch(provider.name).includes(normalizeSearch(query.trim())))
+    .sort((left, right) => (descending ? -1 : 1) * left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }));
+  const save = () => {
+    if (!editing?.name.trim()) return;
+    onSave({ ...editing, name: editing.name.trim() });
+    setEditing(null);
+  };
+  return (
+    <>
+      <PageTitle eyebrow="CADASTROS" title="Prestadores" description="Pessoas que prestam serviços e podem ser selecionadas no controle de pagamentos." action={<button className="primary-button" onClick={() => setEditing({ id: `provider-${Date.now()}`, name: "" })}><UserPlus size={18} />Novo prestador</button>} />
+      {editing && <section className="panel registry-editor provider-editor">
+        <div className="registry-editor__heading"><div><strong>{providers.some((provider) => provider.id === editing.id) ? "Editar prestador" : "Novo prestador"}</strong><span>Informe o nome que deverá aparecer nos pagamentos e relatórios.</span></div><button className="icon-button" aria-label="Fechar cadastro" onClick={() => setEditing(null)}><X size={18} /></button></div>
+        <div className="registry-editor__grid"><label className="registry-field registry-field--full">Nome do prestador<input value={editing.name} onChange={(event) => setEditing((current) => current ? { ...current, name: event.target.value } : current)} autoFocus /></label></div>
+        <div className="registry-editor__actions"><button className="secondary-button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" onClick={save} disabled={!editing.name.trim()}><Save size={17} />Salvar prestador</button></div>
+      </section>}
+      <section className="panel list-panel">
+        <div className="list-toolbar"><div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar prestador..." /></div><button className="secondary-button" onClick={() => setDescending((current) => !current)}><ListFilter size={16} />Ordenar: {descending ? "Nome Z–A" : "Nome A–Z"}</button></div>
+        <div className="registry-cards registry-cards--providers">{visible.map((provider) => <article key={provider.id}><div className="registry-card-icon"><UsersRound size={20} /></div><div className="registry-card-copy"><small>PRESTADOR</small><h3>{provider.name}</h3><p>Disponível para novos pagamentos</p><span>O histórico já registrado preserva o nome usado na data.</span></div><div className="registry-card-actions"><button aria-label={`Editar ${provider.name}`} onClick={() => setEditing(provider)}><Edit3 size={16} /></button><button className="danger-icon" aria-label={`Excluir ${provider.name}`} onClick={() => onDelete(provider.id)}><Trash2 size={16} /></button></div></article>)}</div>
+        {!visible.length && <div className="empty-table">Nenhum prestador cadastrado.</div>}
+      </section>
+    </>
+  );
+}
+
+function ProviderPaymentsPage({ providers, payments, onSave, onDelete, company }: { providers: ServiceProvider[]; payments: ServiceProviderPayment[]; onSave: (payment: ServiceProviderPayment) => void; onDelete: (id: string) => void; company: CompanyProfile }) {
+  const [editing, setEditing] = useState<ServiceProviderPayment | null>(null);
+  const [query, setQuery] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("Todos");
+  const [providerFilter, setProviderFilter] = useState("Todos");
+  const [methodFilter, setMethodFilter] = useState("Todos");
+  const [minimumAmount, setMinimumAmount] = useState(0);
+  const [maximumAmount, setMaximumAmount] = useState(0);
+  const sortedProviders = providers.slice().sort((left, right) => left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }));
+  const { uniqueDates, months } = exportPeriodOptions(payments.map((payment) => payment.date));
+  const providerNames = Array.from(new Set([...providers.map((provider) => provider.name), ...payments.map((payment) => payment.providerName)])).sort((left, right) => left.localeCompare(right, "pt-BR"));
+  const visible = payments.filter((payment) => {
+    const periodMatches = periodFilter === "Todos" || (periodFilter.startsWith("date:") ? payment.date === periodFilter.slice(5) : payment.date.startsWith(periodFilter.slice(6)));
+    const queryMatches = normalizeSearch(`${payment.providerName} ${payment.reason}`).includes(normalizeSearch(query.trim()));
+    const providerMatches = providerFilter === "Todos" || payment.providerName === providerFilter;
+    const methodMatches = methodFilter === "Todos" || payment.paymentMethod === methodFilter;
+    const minimumMatches = !minimumAmount || payment.amount >= minimumAmount;
+    const maximumMatches = !maximumAmount || payment.amount <= maximumAmount;
+    return periodMatches && queryMatches && providerMatches && methodMatches && minimumMatches && maximumMatches;
+  }).sort((left, right) => right.date.localeCompare(left.date) || right.id.localeCompare(left.id));
+  const total = visible.reduce((sum, payment) => sum + payment.amount, 0);
+  const pixTotal = visible.filter((payment) => payment.paymentMethod === "Pix").reduce((sum, payment) => sum + payment.amount, 0);
+  const cashTotal = visible.filter((payment) => payment.paymentMethod === "Dinheiro").reduce((sum, payment) => sum + payment.amount, 0);
+  const reportHeaders = ["Data", "Prestador", "Motivo", "Forma de pagamento", "Valor"];
+  const reportRows = visible.map((payment) => [formatDate(payment.date), payment.providerName, payment.reason, payment.paymentMethod, payment.amount.toFixed(2).replace(".", ",")]);
+  const openNew = () => {
+    const provider = sortedProviders[0];
+    setEditing({ id: `provider-payment-${Date.now()}`, date: localIsoDate(), providerId: provider?.id ?? "", providerName: provider?.name ?? "", reason: "", amount: 0, paymentMethod: "Pix" });
+  };
+  const update = <K extends keyof ServiceProviderPayment,>(field: K, value: ServiceProviderPayment[K]) => setEditing((current) => current ? { ...current, [field]: value } : current);
+  const selectProvider = (providerId: string) => {
+    const provider = providers.find((candidate) => candidate.id === providerId);
+    setEditing((current) => current ? { ...current, providerId, providerName: provider?.name ?? current.providerName } : current);
+  };
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editing || !editing.date || !editing.providerId || !editing.reason.trim() || editing.amount <= 0) return;
+    onSave({ ...editing, reason: editing.reason.trim() });
+    setEditing(null);
+  };
+  const periodLabel = periodFilter === "Todos" ? "todo o histórico" : periodFilter.startsWith("date:") ? formatDate(periodFilter.slice(5)) : monthLabel(periodFilter.slice(6));
+  return (
+    <>
+      <PageTitle eyebrow="FINANCEIRO · PRESTADORES" title="Controle de prestadores" description="Registre os pagamentos realizados e consulte o histórico com filtros e totais." action={<button className="primary-button" onClick={openNew} disabled={!providers.length}><Plus size={18} />Incluir pagamento</button>} />
+      {!providers.length && <div className="data-guidance"><UsersRound size={18} /><div><strong>Cadastre um prestador primeiro</strong><span>Abra Cadastros › Prestadores para liberar a inclusão de pagamentos.</span></div></div>}
+      {editing && <form className="panel provider-payment-editor" onSubmit={save}>
+        <div className="registry-editor__heading"><div><strong>{payments.some((payment) => payment.id === editing.id) ? "Editar pagamento" : "Incluir pagamento"}</strong><span>O valor informado será somado aos totais e relatórios do período.</span></div><button className="icon-button" type="button" aria-label="Fechar pagamento" onClick={() => setEditing(null)}><X size={18} /></button></div>
+        <div className="provider-payment-form">
+          <label className="registry-field">Data do pagamento<input type="date" value={editing.date} onChange={(event) => update("date", event.target.value)} /></label>
+          <label className="registry-field">Prestador<select value={editing.providerId} onChange={(event) => selectProvider(event.target.value)}>{editing.providerId && !providers.some((provider) => provider.id === editing.providerId) && <option value={editing.providerId}>{editing.providerName}</option>}{sortedProviders.map((provider) => <option value={provider.id} key={provider.id}>{provider.name}</option>)}</select></label>
+          <label className="registry-field">Forma de pagamento<select value={editing.paymentMethod} onChange={(event) => update("paymentMethod", event.target.value as ServiceProviderPaymentMethod)}><option>Pix</option><option>Dinheiro</option></select></label>
+          <label className="registry-field">Valor<DecimalInput ariaLabel="Valor do pagamento ao prestador" value={editing.amount} onValueChange={(value) => update("amount", value)} /></label>
+          <label className="registry-field registry-field--full">Motivo do pagamento<textarea rows={3} value={editing.reason} onChange={(event) => update("reason", event.target.value)} placeholder="Ex.: carregamento e separação da entrega do dia" /></label>
+        </div>
+        <div className="provider-payment-editor__footer"><div><span>Total deste pagamento</span><strong>{money(editing.amount)}</strong></div><div><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button" type="submit" disabled={!editing.date || !editing.providerId || !editing.reason.trim() || editing.amount <= 0}><Save size={17} />Salvar pagamento</button></div></div>
+      </form>}
+      <section className="provider-payment-summary">
+        <article><span>Pagamentos exibidos</span><strong>{visible.length}</strong><small>{periodLabel}</small></article>
+        <article><span>Total pago</span><strong>{money(total)}</strong><small>{visible.length ? `Média de ${money(total / visible.length)}` : "Nenhum lançamento"}</small></article>
+        <article><span>Pago via Pix</span><strong>{money(pixTotal)}</strong><small>{visible.filter((payment) => payment.paymentMethod === "Pix").length} pagamento(s)</small></article>
+        <article><span>Pago em dinheiro</span><strong>{money(cashTotal)}</strong><small>{visible.filter((payment) => payment.paymentMethod === "Dinheiro").length} pagamento(s)</small></article>
+      </section>
+      <section className="panel list-panel provider-payments-panel">
+        <div className="list-toolbar provider-payment-filters">
+          <div className="inline-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar motivo ou prestador..." /></div>
+          <label className="compact-filter">Período<select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option>Todos</option><optgroup label="Meses">{months.map((month) => <option value={`month:${month}`} key={month}>{monthLabel(month)}</option>)}</optgroup><optgroup label="Dias">{uniqueDates.map((date) => <option value={`date:${date}`} key={date}>{formatDate(date)}</option>)}</optgroup></select></label>
+          <label className="compact-filter">Prestador<select value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)}><option>Todos</option>{providerNames.map((name) => <option key={name}>{name}</option>)}</select></label>
+          <label className="compact-filter">Forma<select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}><option>Todos</option><option>Pix</option><option>Dinheiro</option></select></label>
+          <label className="compact-filter value-filter">Valor mínimo<DecimalInput ariaLabel="Valor mínimo do pagamento" value={minimumAmount} onValueChange={setMinimumAmount} /></label>
+          <label className="compact-filter value-filter">Valor máximo<DecimalInput ariaLabel="Valor máximo do pagamento" value={maximumAmount} onValueChange={setMaximumAmount} /></label>
+          <div className="toolbar-spacer" />
+          <button className="secondary-button" disabled={!visible.length} onClick={() => downloadCsv("pagamentos-prestadores.csv", reportHeaders, reportRows)}><Download size={16} />Excel (.csv)</button>
+          <button className="secondary-button" disabled={!visible.length} onClick={() => printTableReport("Pagamentos de prestadores", `${visible.length} pagamento(s) · ${periodLabel} · Total ${money(total)}`, reportHeaders, reportRows, company)}><FileText size={16} />PDF</button>
+        </div>
+        <div className="provider-payments-table"><div className="provider-payments-table__head"><span>Data</span><span>Prestador</span><span>Motivo</span><span>Forma</span><span>Valor</span><span>Ações</span></div>{visible.map((payment) => <div className="provider-payments-table__row" key={payment.id}><span>{formatDate(payment.date)}</span><strong>{payment.providerName}</strong><span>{payment.reason}</span><b>{payment.paymentMethod}</b><strong>{money(payment.amount)}</strong><div className="row-actions"><button aria-label={`Editar pagamento de ${payment.providerName}`} onClick={() => setEditing(payment)}><Edit3 size={16} /></button><button className="danger-icon" aria-label={`Excluir pagamento de ${payment.providerName}`} onClick={() => onDelete(payment.id)}><Trash2 size={16} /></button></div></div>)}</div>
+        {!visible.length && <div className="empty-table">Nenhum pagamento encontrado com esses filtros.</div>}
+      </section>
+    </>
+  );
+}
+
 function CompanySettingsPage({ company, onSave }: { company: CompanyProfile; onSave: (company: CompanyProfile) => void }) {
   const [draft, setDraft] = useState(company);
   const [saved, setSaved] = useState(false);
@@ -799,6 +922,8 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   const clientStore = useSyncedCollection<Client>("clients", demoClients);
   const productStore = useSyncedCollection<Product>("products", demoProducts);
   const supplierStore = useSyncedCollection<Supplier>("suppliers", demoSuppliers);
+  const providerStore = useSyncedCollection<ServiceProvider>("serviceProviders", []);
+  const providerPaymentStore = useSyncedCollection<ServiceProviderPayment>("serviceProviderPayments", []);
   const orderStore = useSyncedCollection<Order>("orders", initialOrders);
   const allocationStore = useSyncedCollection<PurchaseAllocation>("purchaseAllocations", makeInitialAllocations(initialOrders));
   const purchaseStore = useSyncedCollection<PurchaseRecord>("purchases", initialPurchases);
@@ -812,9 +937,9 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   const deliveryDates = Array.from(new Set(orders.map((order) => order.deliveryDate))).sort();
   const nextDeliveryDate = deliveryDates[deliveryDates.length - 1] ?? localIsoDate();
   const operationStages: OperationStagesByDate = Object.fromEntries(operationStore.records.map((operation) => [operation.date, operation.stages]));
-  const dataLoading = [clientStore, productStore, supplierStore, orderStore, allocationStore, purchaseStore, operationStore, companyStore].some((store) => store.loading);
-  const dataError = [clientStore, productStore, supplierStore, orderStore, allocationStore, purchaseStore, operationStore, companyStore].map((store) => store.error).find(Boolean) ?? "";
-  const databaseEmpty = firebaseConfigured && !dataLoading && !clientStore.records.length && !productStore.records.length && !supplierStore.records.length && !orders.length;
+  const dataLoading = [clientStore, productStore, supplierStore, providerStore, providerPaymentStore, orderStore, allocationStore, purchaseStore, operationStore, companyStore].some((store) => store.loading);
+  const dataError = [clientStore, productStore, supplierStore, providerStore, providerPaymentStore, orderStore, allocationStore, purchaseStore, operationStore, companyStore].map((store) => store.error).find(Boolean) ?? "";
+  const databaseEmpty = firebaseConfigured && !dataLoading && !clientStore.records.length && !productStore.records.length && !supplierStore.records.length && !providerStore.records.length && !providerPaymentStore.records.length && !orders.length;
   const pendingOrders = orders.filter((order) => order.paymentStatus !== "Pago");
   const pendingPurchases = purchaseHistory.filter((purchase) => purchase.status !== "Pago");
   const normalizedGlobalQuery = normalizeSearch(globalQuery.trim());
@@ -825,9 +950,10 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
       ...clientStore.records.map((client) => ({ id: `client-${client.id}`, view: "clients" as const, label: "Cliente", title: client.name, detail: [client.contact, client.phone, client.city].filter(Boolean).join(" · ") || "Cadastro de cliente", query: client.name })),
       ...productStore.records.map((product) => ({ id: `product-${product.id}`, view: "products" as const, label: "Produto", title: `${product.code || "—"} · ${product.name}`, detail: `${product.category || "Sem categoria"} · ${money(product.saleReference)}/${product.unit}`, query: product.code || product.name })),
       ...supplierStore.records.map((supplier) => ({ id: `supplier-${supplier.id}`, view: "suppliers" as const, label: "Fornecedor", title: supplier.name, detail: [supplier.contact, supplier.phone, supplier.city].filter(Boolean).join(" · ") || "Cadastro de fornecedor", query: supplier.name })),
+      ...providerStore.records.map((provider) => ({ id: `provider-${provider.id}`, view: "providers" as const, label: "Prestador", title: provider.name, detail: "Cadastro de prestador de serviço", query: provider.name })),
     ];
     return candidates.filter((candidate) => normalizeSearch(`${candidate.label} ${candidate.title} ${candidate.detail}`).includes(normalizedGlobalQuery)).slice(0, 10);
-  }, [normalizedGlobalQuery, orders, clientStore.records, productStore.records, supplierStore.records]);
+  }, [normalizedGlobalQuery, orders, clientStore.records, productStore.records, supplierStore.records, providerStore.records]);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; try { window.localStorage.setItem("zeca-hortifruti-theme", theme); } catch (_) { /* preference remains active for this session */ } }, [theme]);
   useEffect(() => { const handleHash = () => setView(viewFromHash()); window.addEventListener("hashchange", handleHash); if (!window.location.hash) window.history.replaceState(null, "", "#/inicio"); return () => window.removeEventListener("hashchange", handleHash); }, []);
@@ -872,14 +998,16 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
   const nextOrderNumber = `#${orders.length ? Math.max(...orders.map((order) => Number(order.number.replace(/\D/g, "")) || 0)) + 1 : 1}`;
   let content: ReactNode;
   if (view === "dashboard") content = <Dashboard navigate={navigate} startNewOrder={startNewOrder} orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} supplierCatalog={supplierStore.records} purchaseHistory={purchaseHistory} company={company} />;
-  else if (view === "analytics") content = <AnalyticsDashboard orders={orders} purchaseHistory={purchaseHistory} selectedDate={selectedDate} />;
+  else if (view === "analytics") content = <AnalyticsDashboard orders={orders} purchaseHistory={purchaseHistory} providerPayments={providerPaymentStore.records} selectedDate={selectedDate} />;
   else if (view === "order-form") content = <OrderForm key={editingOrder?.number ?? "new-order"} order={editingOrder} nextNumber={nextOrderNumber} navigate={navigate} onSave={saveOrder} catalogClients={clientStore.records} catalogProducts={productStore.records} company={company} />;
   else if (view === "orders") content = <OrdersPage orders={orders} saved={savedOrder} startNewOrder={startNewOrder} editOrder={editOrder} updatePayment={updatePayment} updatePaymentMethod={updatePaymentMethod} updatePaymentReference={updatePaymentReference} company={company} externalQuery={pageSearch?.view === "orders" ? pageSearch.query : ""} />;
   else if (view === "operation") content = <OperationPage orders={orders} editOrder={editOrder} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} operationStages={operationStages} saveOperationStages={saveOperationStages} supplierCatalog={supplierStore.records} company={company} />;
   else if (view === "purchases") content = <PurchasesPage orders={orders} selectedDate={selectedDate} setSelectedDate={setSelectedDate} allocations={allocations} products={productStore.records} suppliers={supplierStore.records} purchaseHistory={purchaseHistory} saveAllocation={allocationStore.upsert} deleteAllocation={allocationStore.remove} savePurchase={purchaseStore.upsert} company={company} />;
+  else if (view === "provider-payments") content = <ProviderPaymentsPage providers={providerStore.records} payments={providerPaymentStore.records} onSave={providerPaymentStore.upsert} onDelete={providerPaymentStore.remove} company={company} />;
   else if (view === "clients") content = <RegistryPage key={view} type="clients" externalQuery={pageSearch?.view === "clients" ? pageSearch.query : ""} records={clientStore.records.map((client) => ({ id: client.id, name: client.name, contact: client.contact, phone: client.phone, address: client.address, city: client.city, observation: client.observation, code: "", category: "", unit: "un", cost: 0, sale: 0, supplierIds: [] }))} onSave={(record) => clientStore.upsert({ id: record.id, name: record.name, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, orders: clientStore.records.find((client) => client.id === record.id)?.orders ?? 0, status: "Ativo" })} onDelete={clientStore.remove} />;
   else if (view === "products") content = <RegistryPage key={view} type="products" externalQuery={pageSearch?.view === "products" ? pageSearch.query : ""} suppliers={supplierStore.records} records={productStore.records.map((product) => ({ id: product.id, name: product.name, contact: "", phone: "", address: "", city: "", observation: "", code: product.code, category: product.category, unit: product.unit, cost: product.costReference, sale: product.saleReference, supplierIds: product.supplierIds ?? [] }))} onSave={(record) => productStore.upsert({ id: record.id, code: record.code, name: record.name, category: record.category, unit: record.unit, costReference: record.cost, saleReference: record.sale, aliases: productStore.records.find((product) => product.id === record.id)?.aliases ?? [record.name], supplierIds: record.supplierIds })} onImportProducts={productStore.upsertMany} onDelete={productStore.remove} />;
   else if (view === "suppliers") content = <RegistryPage key={view} type="suppliers" externalQuery={pageSearch?.view === "suppliers" ? pageSearch.query : ""} records={supplierStore.records.map((supplier) => ({ id: supplier.id, name: supplier.name, contact: supplier.contact, phone: supplier.phone, address: supplier.address, city: supplier.city, observation: supplier.observation, code: "", category: supplier.categories, unit: "un", cost: 0, sale: 0, supplierIds: [] }))} onSave={(record) => supplierStore.upsert({ id: record.id, name: record.name, categories: record.category, contact: record.contact, phone: record.phone, address: record.address, city: record.city, observation: record.observation, delivery: record.observation, rating: supplierStore.records.find((supplier) => supplier.id === record.id)?.rating ?? "Novo" })} onDelete={supplierStore.remove} />;
+  else if (view === "providers") content = <ServiceProvidersPage providers={providerStore.records} onSave={providerStore.upsert} onDelete={providerStore.remove} externalQuery={pageSearch?.view === "providers" ? pageSearch.query : ""} />;
   else content = <CompanySettingsPage company={company} onSave={companyStore.upsert} />;
   if (dataLoading) return <AccessScreen state="loading" retry={() => undefined} />;
   return (
@@ -890,7 +1018,7 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
           <div className="topbar__left">
             <button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={21} /></button>
             <div className="global-search">
-              <div className="search-box"><Search size={18} /><input ref={searchInputRef} aria-label="Pesquisar em todo o sistema" value={globalQuery} placeholder="Buscar pedido, cliente, produto ou fornecedor..." onFocus={() => setGlobalSearchOpen(true)} onChange={(event) => { setGlobalQuery(event.target.value); setGlobalSearchOpen(true); }} onBlur={() => setTimeout(() => setGlobalSearchOpen(false), 140)} /><kbd>Ctrl K</kbd></div>
+              <div className="search-box"><Search size={18} /><input ref={searchInputRef} aria-label="Pesquisar em todo o sistema" value={globalQuery} placeholder="Buscar pedido, cliente, produto, fornecedor ou prestador..." onFocus={() => setGlobalSearchOpen(true)} onChange={(event) => { setGlobalQuery(event.target.value); setGlobalSearchOpen(true); }} onBlur={() => setTimeout(() => setGlobalSearchOpen(false), 140)} /><kbd>Ctrl K</kbd></div>
               {globalSearchOpen && globalQuery.trim() && <div className="global-search-results" role="listbox">{globalResults.length ? globalResults.map((result) => <button key={result.id} role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => openGlobalResult(result)}><span>{result.label}</span><div><strong>{result.title}</strong><small>{result.detail}</small></div><ChevronRight size={16} /></button>) : <div className="search-empty">Nenhum resultado encontrado.</div>}</div>}
             </div>
           </div>
@@ -908,7 +1036,7 @@ function App({ firebaseUser, firebaseRole }: { firebaseUser: FirebaseUser | null
         {databaseEmpty && <div className="database-empty"><div><strong>Banco conectado e vazio</strong><span>Você pode iniciar os cadastros do zero ou carregar os dados fictícios para validar o fluxo.</span></div><button className="secondary-button" disabled={seeding} onClick={() => void seedDemo()}>{seeding ? "Carregando..." : "Carregar dados demonstrativos"}</button></div>}
         <div className="page">{content}</div>
       </main>
-      <nav className="mobile-nav" aria-label="Navegação móvel"><button className={view === "dashboard" ? "mobile-nav__active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard size={21} /><span>Início</span></button><button className={view === "orders" ? "mobile-nav__active" : ""} onClick={() => navigate("orders")}><ClipboardList size={21} /><span>Pedidos</span></button><button className="mobile-create" aria-label="Novo pedido" onClick={startNewOrder}><Plus size={25} /></button><button className={view === "operation" ? "mobile-nav__active" : ""} onClick={() => navigate("operation")}><Truck size={21} /><span>Operação</span></button><button className={view === "analytics" ? "mobile-nav__active" : ""} onClick={() => setMenuOpen(true)}><Menu size={21} /><span>Mais</span></button></nav>
+      <nav className="mobile-nav" aria-label="Navegação móvel"><button className={view === "dashboard" ? "mobile-nav__active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard size={21} /><span>Início</span></button><button className={view === "orders" ? "mobile-nav__active" : ""} onClick={() => navigate("orders")}><ClipboardList size={21} /><span>Pedidos</span></button><button className="mobile-create" aria-label="Novo pedido" onClick={startNewOrder}><Plus size={25} /></button><button className={view === "operation" ? "mobile-nav__active" : ""} onClick={() => navigate("operation")}><Truck size={21} /><span>Operação</span></button><button className={["analytics", "provider-payments", "providers"].includes(view) ? "mobile-nav__active" : ""} onClick={() => setMenuOpen(true)}><Menu size={21} /><span>Mais</span></button></nav>
     </div>
   );
 }

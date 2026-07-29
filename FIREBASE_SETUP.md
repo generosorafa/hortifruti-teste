@@ -166,6 +166,7 @@ Enquanto houver qualquer dúvida sobre as regras ou contas autorizadas, utilize 
 - [ ] O mesmo produto aparece ao abrir no celular com uma conta autorizada.
 - [ ] Clientes e fornecedores permanecem após sair e entrar novamente.
 - [ ] Pedidos, pagamentos, compras e etapas por data permanecem salvos.
+- [ ] Prestadores e pagamentos de prestadores permanecem após sair e entrar novamente.
 - [ ] O documento de um usuário com `active: false` perde o acesso.
 - [ ] As regras publicadas são iguais ao arquivo `firestore.rules`.
 
