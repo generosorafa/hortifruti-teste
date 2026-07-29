@@ -103,7 +103,25 @@ export type PurchaseRecord = {
   supplier: string;
   total: number;
   status: PaymentStatus;
+  invoiceReceived?: boolean;
   source?: "allocation" | "manual";
+};
+
+export type ServiceProvider = {
+  id: string;
+  name: string;
+};
+
+export type ServiceProviderPaymentMethod = "Pix" | "Dinheiro";
+
+export type ServiceProviderPayment = {
+  id: string;
+  date: string;
+  providerId: string;
+  providerName: string;
+  reason: string;
+  amount: number;
+  paymentMethod: ServiceProviderPaymentMethod;
 };
 
 export type OperationDay = {
@@ -274,7 +292,7 @@ const openPrintDocument = (title: string, body: string, landscape = false) => {
   const popup = window.open("", "_blank", "width=980,height=760");
   if (!popup) return false;
   popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638;text-transform:uppercase}.company-print{max-width:58%;display:flex;flex-direction:column;gap:3px}.company-print .brand{margin-bottom:3px;font-size:16px}.company-print span{color:#53625a;font-size:9px;line-height:1.35}.document-heading{display:flex;align-items:flex-end;flex-direction:column;gap:7px;text-align:right}.document-heading strong{font-size:11px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.report-table{font-size:9px}.report-table th,.report-table td{padding:6px 5px;overflow-wrap:anywhere}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@page{size:${landscape ? "landscape" : "auto"};margin:10mm}@media print{body{padding:0}.no-print{display:none}}
+    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638;text-transform:uppercase}.company-print{max-width:58%;display:flex;flex-direction:column;gap:3px}.company-print .brand{margin-bottom:3px;font-size:16px}.company-print span{color:#53625a;font-size:9px;line-height:1.35}.document-heading{display:flex;align-items:flex-end;flex-direction:column;gap:7px;text-align:right}.document-heading strong{font-size:11px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.report-table{font-size:9px}.report-table th,.report-table td{padding:6px 5px;overflow-wrap:anywhere}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.supplier-section{margin-top:24px;break-inside:avoid}.supplier-section h2{display:flex;justify-content:space-between;gap:20px;padding:10px 12px;margin:0;background:#dfece5;border-left:4px solid #174638}.supplier-section h2 span{font-size:11px}.supplier-section__total{display:flex;justify-content:flex-end;padding:10px 7px;font-size:13px}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@page{size:${landscape ? "landscape" : "auto"};margin:10mm}@media print{body{padding:0}.no-print{display:none}}
   </style></head><body>${body}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`);
   popup.document.close();
   return true;
@@ -319,6 +337,51 @@ export const printPurchaseSheet = (orders: Order[], allocations: PurchaseAllocat
 export const printLoadingSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers, company: CompanyProfile = defaultCompanyProfile) => printDaySheet(orders, allocations, supplierCatalog, false, company);
 export const printLoadSheet = printPurchaseSheet;
 
+export const printSupplierDaySheet = (orders: Order[], allocations: PurchaseAllocation[], productCatalog: Product[], supplierCatalog: Supplier[], company: CompanyProfile = defaultCompanyProfile) => {
+  const deliveryDate = orders[0]?.deliveryDate ?? "";
+  const orderProducts = new Map<string, Pick<Product, "name" | "unit" | "code">>();
+  orders.forEach((order) => order.items.forEach((line) => {
+    const product = productCatalog.find((candidate) => candidate.id === line.productId);
+    orderProducts.set(line.productId, { name: line.name, unit: line.unit, code: product?.code ?? "—" });
+  }));
+  const grouped = new Map<string, {
+    supplier: string;
+    lines: Map<string, { code: string; product: string; unit: Unit; quantity: number; total: number }>;
+  }>();
+  allocations
+    .filter((allocation) => allocation.deliveryDate === deliveryDate && allocation.supplierId && allocation.quantity > 0)
+    .forEach((allocation) => {
+      const supplier = supplierCatalog.find((candidate) => candidate.id === allocation.supplierId)?.name ?? "Fornecedor não informado";
+      const product = productCatalog.find((candidate) => candidate.id === allocation.productId);
+      const orderProduct = orderProducts.get(allocation.productId);
+      const supplierGroup = grouped.get(allocation.supplierId) ?? { supplier, lines: new Map() };
+      const current = supplierGroup.lines.get(allocation.productId) ?? {
+        code: product?.code ?? orderProduct?.code ?? "—",
+        product: product?.name ?? orderProduct?.name ?? "Produto não cadastrado",
+        unit: product?.unit ?? orderProduct?.unit ?? "un",
+        quantity: 0,
+        total: 0,
+      };
+      current.quantity += allocation.quantity;
+      current.total += allocation.quantity * allocation.unitCost;
+      supplierGroup.lines.set(allocation.productId, current);
+      grouped.set(allocation.supplierId, supplierGroup);
+    });
+  const supplierGroups = Array.from(grouped.values()).sort((left, right) => left.supplier.localeCompare(right.supplier, "pt-BR"));
+  const total = supplierGroups.reduce((sum, group) => sum + Array.from(group.lines.values()).reduce((lineSum, line) => lineSum + line.total, 0), 0);
+  const sections = supplierGroups.map((group) => {
+    const lines = Array.from(group.lines.values()).sort((left, right) => left.code.localeCompare(right.code, "pt-BR", { numeric: true }) || left.product.localeCompare(right.product, "pt-BR"));
+    const supplierTotal = lines.reduce((sum, line) => sum + line.total, 0);
+    return `<section class="supplier-section"><h2><span>${escapeHtml(group.supplier)}</span><span>${lines.length} produto(s)</span></h2><table><thead><tr><th>Conferir</th><th>Nº</th><th>Produto</th><th>Quantidade</th><th class="right">Custo unitário</th><th class="right">Total</th></tr></thead><tbody>${lines.map((line) => `<tr><td><span class="check"></span></td><td>${escapeHtml(line.code)}</td><td><strong>${escapeHtml(line.product)}</strong></td><td><strong>${escapeHtml(line.quantity.toLocaleString("pt-BR"))} ${escapeHtml(line.unit)}</strong></td><td class="right">${escapeHtml(money(line.quantity ? line.total / line.quantity : 0))}/${escapeHtml(line.unit)}</td><td class="right"><strong>${escapeHtml(money(line.total))}</strong></td></tr>`).join("")}</tbody></table><div class="supplier-section__total"><strong>Subtotal: ${escapeHtml(money(supplierTotal))}</strong></div></section>`;
+  }).join("");
+  return openPrintDocument("Compras por fornecedor do dia", `
+    ${companyPrintHeader(company, "Compras por fornecedor do dia", `Entrega ${formatDate(deliveryDate)}`)}
+    <div class="meta"><div><span>Fornecedores</span><strong>${supplierGroups.length}</strong></div><div><span>Produtos distribuídos</span><strong>${supplierGroups.reduce((sum, group) => sum + group.lines.size, 0)}</strong></div><div><span>Custo planejado</span><strong>${escapeHtml(money(total))}</strong></div></div>
+    ${sections || '<div class="note">Nenhuma compra foi distribuída entre fornecedores para esta entrega.</div>'}
+    <div class="footer">Folha agrupada por fornecedor para compra e conferência da entrega selecionada.</div>
+  `);
+};
+
 export const buildPurchaseHistory = (allocations: PurchaseAllocation[], supplierCatalog: Supplier[], savedRecords: PurchaseRecord[]): PurchaseRecord[] => {
   const grouped = new Map<string, { date: string; supplierId: string; total: number }>();
   allocations.filter((allocation) => allocation.quantity > 0 && allocation.supplierId).forEach((allocation) => {
@@ -343,10 +406,13 @@ export const buildPurchaseHistory = (allocations: PurchaseAllocation[], supplier
       supplier: supplier?.name ?? saved?.supplier ?? "Fornecedor não informado",
       total: group.total,
       status: saved?.status ?? "Pendente",
+      invoiceReceived: saved?.invoiceReceived ?? false,
       source: "allocation" as const,
     };
   });
-  const manual = savedRecords.filter((record) => record.source !== "allocation" && !matchedSavedIds.has(record.id) && !grouped.has(record.id));
+  const manual = savedRecords
+    .filter((record) => record.source !== "allocation" && !matchedSavedIds.has(record.id) && !grouped.has(record.id))
+    .map((record) => ({ ...record, invoiceReceived: record.invoiceReceived ?? false }));
   return [...derived, ...manual].sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number, undefined, { numeric: true }));
 };
 

@@ -60,6 +60,8 @@ test("permite leitura e escrita para usuário ativo e e-mail correspondente", as
   await assertSucceeds(getDocs(collection(db, "clients")));
   await assertSucceeds(setDoc(doc(db, "orders", "1050"), { number: "#1050" }));
   await assertSucceeds(setDoc(doc(db, "companySettings", "company"), { tradeName: "Zeca Hortifruti" }));
+  await assertSucceeds(setDoc(doc(db, "serviceProviders", "prestador-1"), { name: "Prestador Teste" }));
+  await assertSucceeds(setDoc(doc(db, "serviceProviderPayments", "pagamento-1"), { providerId: "prestador-1", amount: 150 }));
 });
 
 test("nega usuário inativo e autorização com e-mail divergente", async () => {
