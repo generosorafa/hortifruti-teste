@@ -2,6 +2,20 @@ export type Unit = "kg" | "cx" | "un" | "maço";
 export type PaymentStatus = "Pendente" | "Pago" | "Parcial";
 export type PaymentMethod = "Não informado" | "Pix" | "Dinheiro" | "Boleto" | "Transferência";
 
+export type CompanyProfile = {
+  id: string;
+  tradeName: string;
+  legalName: string;
+  taxId: string;
+  stateRegistration: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode: string;
+};
+
 export type Product = {
   id: string;
   code: string;
@@ -60,6 +74,7 @@ export type Order = {
   status: "Confirmado" | "Separando" | "Conferido" | "Rascunho";
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
+  paymentReference?: string;
   observation: string;
 };
 
@@ -95,6 +110,20 @@ export type OperationDay = {
   id: string;
   date: string;
   stages: boolean[];
+};
+
+export const defaultCompanyProfile: CompanyProfile = {
+  id: "company",
+  tradeName: "Zeca Hortifruti",
+  legalName: "",
+  taxId: "",
+  stateRegistration: "",
+  phone: "",
+  email: "",
+  address: "",
+  city: "",
+  state: "",
+  postalCode: "",
 };
 
 export const products: Product[] = [
@@ -227,26 +256,40 @@ export const parseOrderText = (text: string, catalog: Product[] = products): Par
 
 const escapeHtml = (value: string | number) => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]!));
 
-const openPrintDocument = (title: string, body: string) => {
+const companyPrintHeader = (company: CompanyProfile, title: string, aside: string) => {
+  const name = company.tradeName.trim() || company.legalName.trim() || "Zeca Hortifruti";
+  const locality = [company.city, company.state].filter(Boolean).join(" - ");
+  const address = [company.address, locality, company.postalCode ? `CEP ${company.postalCode}` : ""].filter(Boolean).join(" · ");
+  const registrations = [
+    company.legalName && normalize(company.legalName) !== normalize(name) ? company.legalName : "",
+    company.taxId ? `CNPJ/CPF ${company.taxId}` : "",
+    company.stateRegistration ? `IE ${company.stateRegistration}` : "",
+  ].filter(Boolean);
+  const contacts = [company.phone, company.email].filter(Boolean).join(" · ");
+  const details = [...registrations, address, contacts].filter(Boolean);
+  return `<header><div class="company-print"><div class="brand">${escapeHtml(name)}</div>${details.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</div><div class="document-heading"><h1>${escapeHtml(title)}</h1><strong>${escapeHtml(aside)}</strong></div></header>`;
+};
+
+const openPrintDocument = (title: string, body: string, landscape = false) => {
   const popup = window.open("", "_blank", "width=980,height=760");
   if (!popup) return false;
   popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@media print{body{padding:10mm}.no-print{display:none}}
+    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638;text-transform:uppercase}.company-print{max-width:58%;display:flex;flex-direction:column;gap:3px}.company-print .brand{margin-bottom:3px;font-size:16px}.company-print span{color:#53625a;font-size:9px;line-height:1.35}.document-heading{display:flex;align-items:flex-end;flex-direction:column;gap:7px;text-align:right}.document-heading strong{font-size:11px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.report-table{font-size:9px}.report-table th,.report-table td{padding:6px 5px;overflow-wrap:anywhere}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@page{size:${landscape ? "landscape" : "auto"};margin:10mm}@media print{body{padding:0}.no-print{display:none}}
   </style></head><body>${body}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`);
   popup.document.close();
   return true;
 };
 
-export const printOrder = (order: Order) => openPrintDocument(`Pedido ${order.number}`, `
-  <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>Pedido individual ${escapeHtml(order.number)}</h1></div><strong>Entrega ${escapeHtml(formatDate(order.deliveryDate))}</strong></header>
-  <div class="meta"><div><span>Cliente</span><strong>${escapeHtml(order.customer)}</strong></div><div><span>Data do pedido</span><strong>${escapeHtml(formatDate(order.date))}</strong></div><div><span>Pagamento</span><strong>${escapeHtml(order.paymentStatus)} · ${escapeHtml(order.paymentMethod)}</strong></div></div>
+export const printOrder = (order: Order, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(`Pedido ${order.number}`, `
+  ${companyPrintHeader(company, `Pedido individual ${order.number}`, `Entrega ${formatDate(order.deliveryDate)}`)}
+  <div class="meta"><div><span>Cliente</span><strong>${escapeHtml(order.customer)}</strong></div><div><span>Data do pedido</span><strong>${escapeHtml(formatDate(order.date))}</strong></div><div><span>Pagamento</span><strong>${escapeHtml(order.paymentStatus)} · ${escapeHtml(order.paymentMethod)}</strong>${order.paymentReference ? `<br><small>Referência: ${escapeHtml(order.paymentReference)}</small>` : ""}</div></div>
   <table><thead><tr><th>Produto</th><th>Qtd.</th><th>Unidade</th><th class="right">Valor unitário</th><th class="right">Total</th><th>Peso conferido</th></tr></thead><tbody>${order.items.map((line) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.quantity)}</td><td>${escapeHtml(line.unit)}</td><td class="right">${escapeHtml(money(line.unitPrice))}</td><td class="right">${escapeHtml(money(line.quantity * line.unitPrice))}</td><td><div class="weight">${line.confirmedWeight ? escapeHtml(line.confirmedWeight) : ""}</div></td></tr>`).join("")}</tbody></table>
   <div class="total"><span>Ajuste: ${escapeHtml(money(order.adjustment))}</span><strong>Total: ${escapeHtml(money(orderTotal(order)))}</strong></div>
   <h2>Observações</h2><div class="note">${escapeHtml(order.observation || "Sem observações.")}</div>
-  <div class="footer">Documento operacional demonstrativo · Gerado pelo sistema Zeca Hortifruti</div>
+  <div class="footer">Documento operacional gerado pelo sistema Zeca Hortifruti.</div>
 `);
 
-const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean) => {
+const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean, company: CompanyProfile) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
   orders.forEach((order) => order.items.forEach((line) => {
     const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
@@ -256,7 +299,7 @@ const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], suppl
   }));
   const documentTitle = includeCosts ? "Compras do dia" : "Carregamento do dia";
   return openPrintDocument(documentTitle, `
-    <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>${documentTitle}</h1></div><strong>Entrega ${escapeHtml(formatDate(orders[0]?.deliveryDate ?? ""))}</strong></header>
+    ${companyPrintHeader(company, documentTitle, `Entrega ${formatDate(orders[0]?.deliveryDate ?? "")}`)}
     <div class="meta"><div><span>Pedidos</span><strong>${orders.length}</strong></div><div><span>Clientes</span><strong>${new Set(orders.map((order) => order.customer)).size}</strong></div><div><span>Conferência</span><strong>CEASA</strong></div></div>
     <table><thead><tr><th>${includeCosts ? "Comprar" : "Conferir"}</th><th>Produto</th><th>Total do dia</th><th>${includeCosts ? "Comprar em" : "Retirar em"}</th><th>Separar para</th><th>Carregado</th></tr></thead><tbody>${Array.from(grouped.values()).map((line) => {
       const purchases = allocations.filter((allocation) => allocation.productId === line.productId && allocation.deliveryDate === orders[0]?.deliveryDate && allocation.quantity > 0);
@@ -272,8 +315,8 @@ const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], suppl
   `);
 };
 
-export const printPurchaseSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers) => printDaySheet(orders, allocations, supplierCatalog, true);
-export const printLoadingSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers) => printDaySheet(orders, allocations, supplierCatalog, false);
+export const printPurchaseSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers, company: CompanyProfile = defaultCompanyProfile) => printDaySheet(orders, allocations, supplierCatalog, true, company);
+export const printLoadingSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers, company: CompanyProfile = defaultCompanyProfile) => printDaySheet(orders, allocations, supplierCatalog, false, company);
 export const printLoadSheet = printPurchaseSheet;
 
 export const buildPurchaseHistory = (allocations: PurchaseAllocation[], supplierCatalog: Supplier[], savedRecords: PurchaseRecord[]): PurchaseRecord[] => {
@@ -319,8 +362,8 @@ export const downloadCsv = (filename: string, headers: string[], rows: Array<Arr
   URL.revokeObjectURL(url);
 };
 
-export const printTableReport = (title: string, subtitle: string, headers: string[], rows: Array<Array<string | number>>) => openPrintDocument(title, `
-  <header><div><div class="brand">ZECA HORTIFRUTI</div><h1>${escapeHtml(title)}</h1></div><strong>${escapeHtml(subtitle)}</strong></header>
-  <table style="margin-top:18px"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>
+export const printTableReport = (title: string, subtitle: string, headers: string[], rows: Array<Array<string | number>>, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(title, `
+  ${companyPrintHeader(company, title, subtitle)}
+  <table class="report-table" style="margin-top:18px"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>
   <div class="footer">Na janela de impressão, escolha “Salvar como PDF” para baixar o relatório.</div>
-`);
+`, true);

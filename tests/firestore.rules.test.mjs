@@ -59,6 +59,7 @@ test("permite leitura e escrita para usuário ativo e e-mail correspondente", as
   }).firestore();
   await assertSucceeds(getDocs(collection(db, "clients")));
   await assertSucceeds(setDoc(doc(db, "orders", "1050"), { number: "#1050" }));
+  await assertSucceeds(setDoc(doc(db, "companySettings", "company"), { tradeName: "Zeca Hortifruti" }));
 });
 
 test("nega usuário inativo e autorização com e-mail divergente", async () => {

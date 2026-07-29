@@ -54,6 +54,10 @@ service cloud.firestore {
       allow read, write: if isAuthorized();
     }
 
+    match /companySettings/{documentId} {
+      allow read, write: if isAuthorized();
+    }
+
     // Qualquer coleção não declarada acima permanece totalmente bloqueada.
     match /{document=**} {
       allow read, write: if false;
