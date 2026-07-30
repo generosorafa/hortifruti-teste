@@ -60,6 +60,7 @@ export type OrderItem = {
   quantity: number;
   unit: Unit;
   unitPrice: number;
+  includeInPurchase?: boolean;
   confirmedWeight?: number;
 };
 
@@ -83,6 +84,7 @@ export type ParsedLine = {
   raw: string;
   quantity: number;
   productId: string;
+  unitPrice?: number;
   needsReview: boolean;
 };
 
@@ -179,7 +181,7 @@ export const initialPurchases: PurchaseRecord[] = [
 
 const item = (productId: string, quantity: number, price?: number): OrderItem => {
   const product = products.find((candidate) => candidate.id === productId)!;
-  return { id: `${productId}-${quantity}-${price ?? product.saleReference}`, productId, name: product.name, quantity, unit: product.unit, unitPrice: price ?? product.saleReference };
+  return { id: `${productId}-${quantity}-${price ?? product.saleReference}`, productId, name: product.name, quantity, unit: product.unit, unitPrice: price ?? product.saleReference, includeInPurchase: true };
 };
 
 export const initialOrders: Order[] = [
@@ -267,9 +269,13 @@ export const parseOrderText = (text: string, catalog: Product[] = products): Par
   .map((raw, index) => {
     const match = raw.match(/^(\d+(?:[.,]\d+)?)\s*(?:x\s*)?(.+)$/i);
     const quantity = match ? Number(match[1].replace(",", ".")) : 1;
-    const description = match?.[2] ?? raw;
+    const remaining = (match?.[2] ?? raw).trim();
+    const priceMatch = remaining.match(/^(.*?)\s+(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)$/i);
+    const description = priceMatch?.[1]?.trim() || remaining;
+    const parsedPrice = priceMatch ? Number(priceMatch[2].replace(",", ".")) : undefined;
+    const unitPrice = parsedPrice !== undefined && Number.isFinite(parsedPrice) ? parsedPrice : undefined;
     const suggestion = findProduct(description, catalog);
-    return { id: `parsed-${Date.now()}-${index}`, raw, quantity, ...suggestion };
+    return { id: `parsed-${Date.now()}-${index}`, raw, quantity, unitPrice, ...suggestion };
   });
 
 const escapeHtml = (value: string | number) => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]!));
@@ -309,7 +315,7 @@ export const printOrder = (order: Order, company: CompanyProfile = defaultCompan
 
 const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean, company: CompanyProfile) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
-  orders.forEach((order) => order.items.forEach((line) => {
+  orders.forEach((order) => order.items.filter((line) => !includeCosts || line.includeInPurchase !== false).forEach((line) => {
     const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
     current.total += line.quantity;
     current.customers.push(`${order.customer}: ${line.quantity} ${line.unit}`);
