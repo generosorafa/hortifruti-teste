@@ -294,12 +294,12 @@ const companyPrintHeader = (company: CompanyProfile, title: string, aside: strin
   return `<header><div class="company-print"><div class="brand">${escapeHtml(name)}</div>${details.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</div><div class="document-heading"><h1>${escapeHtml(title)}</h1><strong>${escapeHtml(aside)}</strong></div></header>`;
 };
 
-const openPrintDocument = (title: string, body: string, landscape = false) => {
+const openPrintDocument = (title: string, body: string, landscape = false, compact = false) => {
   const popup = window.open("", "_blank", "width=980,height=760");
   if (!popup) return false;
   popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638;text-transform:uppercase}.company-print{max-width:58%;display:flex;flex-direction:column;gap:3px}.company-print .brand{margin-bottom:3px;font-size:16px}.company-print span{color:#53625a;font-size:9px;line-height:1.35}.document-heading{display:flex;align-items:flex-end;flex-direction:column;gap:7px;text-align:right}.document-heading strong{font-size:11px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.report-table{font-size:9px}.report-table th,.report-table td{padding:6px 5px;overflow-wrap:anywhere}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.supplier-section{margin-top:24px;break-inside:avoid}.supplier-section h2{display:flex;justify-content:space-between;gap:20px;padding:10px 12px;margin:0;background:#dfece5;border-left:4px solid #174638}.supplier-section h2 span{font-size:11px}.supplier-section__total{display:flex;justify-content:flex-end;padding:10px 7px;font-size:13px}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}@page{size:${landscape ? "landscape" : "auto"};margin:10mm}@media print{body{padding:0}.no-print{display:none}}
-  </style></head><body>${body}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`);
+    *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638;text-transform:uppercase}.company-print{max-width:58%;display:flex;flex-direction:column;gap:3px}.company-print .brand{margin-bottom:3px;font-size:16px}.company-print span{color:#53625a;font-size:9px;line-height:1.35}.document-heading{display:flex;align-items:flex-end;flex-direction:column;gap:7px;text-align:right}.document-heading strong{font-size:11px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.report-table{font-size:9px}.report-table th,.report-table td{padding:6px 5px;overflow-wrap:anywhere}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.supplier-section{margin-top:24px;break-inside:avoid}.supplier-section h2{display:flex;justify-content:space-between;gap:20px;padding:10px 12px;margin:0;background:#dfece5;border-left:4px solid #174638}.supplier-section h2 span{font-size:11px}.supplier-section__total{display:flex;justify-content:flex-end;padding:10px 7px;font-size:13px}.compact-orders{display:grid;gap:12px}.compact-order{padding:9px 10px;border:1px solid #ccd7d1;border-radius:6px;break-inside:avoid}.compact-order__heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid #d9e1dd}.compact-order__heading div{display:flex;align-items:baseline;gap:8px}.compact-order__heading strong{font-size:12px}.compact-order__heading span,.compact-order__heading small{color:#617068;font-size:8px}.compact-order__items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px;row-gap:0;margin-top:4px}.compact-order__item{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:22px;padding:3px 2px;border-bottom:1px dotted #d9e1dd;font-size:9px}.compact-order__item strong{white-space:nowrap}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}.compact-print{padding:20px;font-size:10px}.compact-print header{gap:16px;padding-bottom:10px}.compact-print h1{font-size:18px}.compact-print h2{margin:14px 0 7px;font-size:13px}.compact-print .company-print{gap:2px}.compact-print .company-print .brand{font-size:14px}.compact-print .company-print span{font-size:8px;line-height:1.2}.compact-print .document-heading{gap:4px}.compact-print .document-heading strong{font-size:9px}.compact-print .meta{gap:8px;margin:11px 0}.compact-print .meta div,.compact-print .note{padding:7px}.compact-print .meta span{margin-bottom:2px;font-size:7px}.compact-print th,.compact-print td{padding:4px 5px}.compact-print th{font-size:7px}.compact-print .report-table{font-size:8px}.compact-print .report-table th,.compact-print .report-table td{padding:4px}.compact-print .customer-breakdown,.compact-print .supplier-breakdown{font-size:8px;line-height:1.3}.compact-print .supplier-section{margin-top:14px}.compact-print .supplier-section h2{padding:7px 9px}.compact-print .supplier-section h2 span{font-size:9px}.compact-print .supplier-section__total{padding:6px 5px;font-size:10px}.compact-print .check{width:11px;height:11px}.compact-print .footer{margin-top:18px;padding-top:7px;font-size:7px}@page{size:${landscape ? "landscape" : "auto"};margin:${compact ? "8mm" : "10mm"}}@media print{body{padding:0}.no-print{display:none}}
+  </style></head><body class="${compact ? "compact-print" : ""}">${body}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`);
   popup.document.close();
   return true;
 };
@@ -312,6 +312,22 @@ export const printOrder = (order: Order, company: CompanyProfile = defaultCompan
   <h2>Observações</h2><div class="note">${escapeHtml(order.observation || "Sem observações.")}</div>
   <div class="footer">Documento operacional gerado pelo sistema Zeca Hortifruti.</div>
 `);
+
+export const printCompactOrdersReport = (orders: Order[], company: CompanyProfile = defaultCompanyProfile) => {
+  const dates = Array.from(new Set(orders.map((order) => order.date))).sort();
+  const period = dates.length === 1 ? `Pedidos de ${formatDate(dates[0])}` : dates.length ? `${formatDate(dates[0])} a ${formatDate(dates[dates.length - 1])}` : "Sem pedidos";
+  const quantityTotal = orders.reduce((sum, order) => sum + order.items.reduce((itemSum, line) => itemSum + line.quantity, 0), 0);
+  const sections = orders.map((order) => {
+    const orderQuantity = order.items.reduce((sum, line) => sum + line.quantity, 0);
+    return `<section class="compact-order"><div class="compact-order__heading"><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.number)}</span></div><small>Entrega ${escapeHtml(formatDate(order.deliveryDate))} · ${escapeHtml(orderQuantity.toLocaleString("pt-BR"))} na soma das quantidades</small></div><div class="compact-order__items">${order.items.map((line) => `<div class="compact-order__item"><span>${escapeHtml(line.name)}</span><strong>${escapeHtml(line.quantity.toLocaleString("pt-BR"))} ${escapeHtml(line.unit)}</strong></div>`).join("")}</div></section>`;
+  }).join("");
+  return openPrintDocument("Pedidos e produtos", `
+    ${companyPrintHeader(company, "Pedidos e produtos", period)}
+    <div class="meta"><div><span>Pedidos</span><strong>${orders.length}</strong></div><div><span>Clientes</span><strong>${new Set(orders.map((order) => order.customer)).size}</strong></div><div><span>Soma das quantidades</span><strong>${escapeHtml(quantityTotal.toLocaleString("pt-BR"))}</strong></div></div>
+    <div class="compact-orders">${sections || '<div class="note">Nenhum pedido encontrado com os filtros selecionados.</div>'}</div>
+    <div class="footer">Relatório operacional sem valores, organizado por cliente e pedido.</div>
+  `, false, true);
+};
 
 const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean, company: CompanyProfile) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
@@ -336,7 +352,7 @@ const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], suppl
       return `<tr><td><span class="check"></span></td><td><strong>${escapeHtml(line.name)}</strong></td><td><strong>${escapeHtml(line.total)} ${escapeHtml(line.unit)}</strong></td><td class="supplier-breakdown">${supplierLines.map(escapeHtml).join("<br>")}</td><td class="customer-breakdown">${line.customers.map(escapeHtml).join("<br>")}</td><td><span class="check"></span></td></tr>`;
     }).join("")}</tbody></table>
     <div class="footer">${includeCosts ? "Use esta folha para comprar, registrar custos e separar por cliente." : "Folha sem valores de compra para separação e conferência do carregamento."}</div>
-  `);
+  `, false, true);
 };
 
 export const printPurchaseSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers, company: CompanyProfile = defaultCompanyProfile) => printDaySheet(orders, allocations, supplierCatalog, true, company);
@@ -385,7 +401,7 @@ export const printSupplierDaySheet = (orders: Order[], allocations: PurchaseAllo
     <div class="meta"><div><span>Fornecedores</span><strong>${supplierGroups.length}</strong></div><div><span>Produtos distribuídos</span><strong>${supplierGroups.reduce((sum, group) => sum + group.lines.size, 0)}</strong></div><div><span>Custo planejado</span><strong>${escapeHtml(money(total))}</strong></div></div>
     ${sections || '<div class="note">Nenhuma compra foi distribuída entre fornecedores para esta entrega.</div>'}
     <div class="footer">Folha agrupada por fornecedor para compra e conferência da entrega selecionada.</div>
-  `);
+  `, false, true);
 };
 
 export const buildPurchaseHistory = (allocations: PurchaseAllocation[], supplierCatalog: Supplier[], savedRecords: PurchaseRecord[]): PurchaseRecord[] => {
@@ -434,8 +450,8 @@ export const downloadCsv = (filename: string, headers: string[], rows: Array<Arr
   URL.revokeObjectURL(url);
 };
 
-export const printTableReport = (title: string, subtitle: string, headers: string[], rows: Array<Array<string | number>>, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(title, `
+export const printTableReport = (title: string, subtitle: string, headers: string[], rows: Array<Array<string | number>>, company: CompanyProfile = defaultCompanyProfile, compact = false) => openPrintDocument(title, `
   ${companyPrintHeader(company, title, subtitle)}
   <table class="report-table" style="margin-top:18px"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>
   <div class="footer">Na janela de impressão, escolha “Salvar como PDF” para baixar o relatório.</div>
-`, true);
+`, true, compact);
