@@ -1,6 +1,6 @@
-export const productUnits = ["SC", "KG", "UN", "FD", "MÇ", "BDJ", "PCT", "CU"] as const;
+export const productUnits = ["SC", "KG", "UN", "FD", "MÇ", "BDJ", "PCT", "CU", "CX"] as const;
 export type StandardUnit = typeof productUnits[number];
-export type Unit = StandardUnit | "CX";
+export type Unit = StandardUnit;
 
 export const normalizeUnit = (value: unknown): Unit => {
   const key = String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
