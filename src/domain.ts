@@ -1,4 +1,13 @@
-export type Unit = "kg" | "cx" | "un" | "maço";
+export const productUnits = ["SC", "KG", "UN", "FD", "MÇ", "BDJ", "PCT", "CU"] as const;
+export type StandardUnit = typeof productUnits[number];
+export type Unit = StandardUnit | "CX";
+
+export const normalizeUnit = (value: unknown): Unit => {
+  const key = String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+  if (key === "MACO" || key === "MC" || key === "MÇ") return "MÇ";
+  if (key === "CX") return "CX";
+  return productUnits.find((unit) => unit.normalize("NFD").replace(/[\u0300-\u036f]/g, "") === key) ?? "UN";
+};
 export type PaymentStatus = "Pendente" | "Pago" | "Parcial";
 export type PaymentMethod = "Não informado" | "Pix" | "Dinheiro" | "Boleto" | "Transferência";
 
@@ -147,15 +156,15 @@ export const defaultCompanyProfile: CompanyProfile = {
 };
 
 export const products: Product[] = [
-  { id: "tomate", code: "001", name: "Tomate italiano", category: "Hortaliças", unit: "kg", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"], supplierIds: ["boa-colheita", "vale-verde"] },
-  { id: "batata", code: "002", name: "Batata lavada", category: "Tubérculos", unit: "kg", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"], supplierIds: ["vale-verde"] },
-  { id: "cebola", code: "003", name: "Cebola nacional", category: "Hortaliças", unit: "kg", costReference: 3.8, saleReference: 5.2, aliases: ["cebola"], supplierIds: ["boa-colheita", "vale-verde"] },
-  { id: "banana", code: "004", name: "Banana nanica", category: "Frutas", unit: "cx", costReference: 28, saleReference: 38, aliases: ["banana", "banana nanica"], supplierIds: ["vale-verde", "nova-safra"] },
-  { id: "alface", code: "005", name: "Alface crespa", category: "Folhas", unit: "un", costReference: 2.1, saleReference: 3.2, aliases: ["alface", "alface crespa"], supplierIds: ["boa-colheita"] },
-  { id: "couve", code: "006", name: "Couve manteiga", category: "Folhas", unit: "maço", costReference: 2.4, saleReference: 3.8, aliases: ["couve", "couve manteiga"], supplierIds: ["boa-colheita"] },
-  { id: "laranja", code: "007", name: "Laranja pera", category: "Frutas", unit: "kg", costReference: 2.9, saleReference: 4.1, aliases: ["laranja", "laranja pera"], supplierIds: ["vale-verde", "nova-safra"] },
-  { id: "maca", code: "008", name: "Maçã gala", category: "Frutas", unit: "cx", costReference: 92, saleReference: 118, aliases: ["maca", "maça", "maçã", "maca gala"], supplierIds: ["nova-safra"] },
-  { id: "uva", code: "009", name: "Uva vitória", category: "Frutas", unit: "cx", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"], supplierIds: ["nova-safra"] },
+  { id: "tomate", code: "001", name: "Tomate italiano", category: "Hortaliças", unit: "KG", costReference: 4.9, saleReference: 6.9, aliases: ["tomate", "tomate italia"], supplierIds: ["boa-colheita", "vale-verde"] },
+  { id: "batata", code: "002", name: "Batata lavada", category: "Tubérculos", unit: "KG", costReference: 3.4, saleReference: 4.8, aliases: ["batata", "batata lisa"], supplierIds: ["vale-verde"] },
+  { id: "cebola", code: "003", name: "Cebola nacional", category: "Hortaliças", unit: "KG", costReference: 3.8, saleReference: 5.2, aliases: ["cebola"], supplierIds: ["boa-colheita", "vale-verde"] },
+  { id: "banana", code: "004", name: "Banana nanica", category: "Frutas", unit: "CX", costReference: 28, saleReference: 38, aliases: ["banana", "banana nanica"], supplierIds: ["vale-verde", "nova-safra"] },
+  { id: "alface", code: "005", name: "Alface crespa", category: "Folhas", unit: "UN", costReference: 2.1, saleReference: 3.2, aliases: ["alface", "alface crespa"], supplierIds: ["boa-colheita"] },
+  { id: "couve", code: "006", name: "Couve manteiga", category: "Folhas", unit: "MÇ", costReference: 2.4, saleReference: 3.8, aliases: ["couve", "couve manteiga"], supplierIds: ["boa-colheita"] },
+  { id: "laranja", code: "007", name: "Laranja pera", category: "Frutas", unit: "KG", costReference: 2.9, saleReference: 4.1, aliases: ["laranja", "laranja pera"], supplierIds: ["vale-verde", "nova-safra"] },
+  { id: "maca", code: "008", name: "Maçã gala", category: "Frutas", unit: "CX", costReference: 92, saleReference: 118, aliases: ["maca", "maça", "maçã", "maca gala"], supplierIds: ["nova-safra"] },
+  { id: "uva", code: "009", name: "Uva vitória", category: "Frutas", unit: "CX", costReference: 58, saleReference: 76, aliases: ["uva", "uva vitoria"], supplierIds: ["nova-safra"] },
 ];
 
 export const clients: Client[] = [
@@ -207,7 +216,7 @@ export const parseProductList = (text: string): { products: Product[]; errors: s
     const line = rawLine.trim();
     if (!line) return;
     if (index === 0 && normalize(line).startsWith("nome") && normalize(line).includes("numero")) return;
-    const match = line.match(/^\s*(.*?)\s*[,;]\s*([^,;]+)\s*[,;]\s*(.*?)\s*[,;]\s*(kg|cx|un|ma[cç]o)\s*[,;]\s*(\d+(?:[.,]\d+)?)\s*[,;]\s*(\d+(?:[.,]\d+)?)\s*$/i);
+    const match = line.match(/^\s*(.*?)\s*[,;]\s*([^,;]+)\s*[,;]\s*(.*?)\s*[,;]\s*(sc|kg|un|fd|m[cç]|ma[cç]o|bdj|pct|cu|cx)\s*[,;]\s*(\d+(?:[.,]\d+)?)\s*[,;]\s*(\d+(?:[.,]\d+)?)\s*$/i);
     if (!match) {
       errors.push(`Linha ${index + 1}: use Nome, Número, Categoria, Unidade, Custo, Venda.`);
       return;
@@ -215,7 +224,7 @@ export const parseProductList = (text: string): { products: Product[]; errors: s
     const [, rawName, rawCode, rawCategory, rawUnit, rawCost, rawSale] = match;
     const name = rawName.trim();
     const code = rawCode.trim();
-    const unit = normalize(rawUnit) === "maco" ? "maço" : normalize(rawUnit) as Unit;
+    const unit = normalizeUnit(rawUnit);
     const costReference = Number(rawCost.replace(",", "."));
     const saleReference = Number(rawSale.replace(",", "."));
     if (!name || !code || !Number.isFinite(costReference) || !Number.isFinite(saleReference)) {
@@ -387,7 +396,7 @@ export const printSupplierDaySheet = (orders: Order[], allocations: PurchaseAllo
       const current = supplierGroup.lines.get(allocation.productId) ?? {
         code: product?.code ?? orderProduct?.code ?? "—",
         product: product?.name ?? orderProduct?.name ?? "Produto não cadastrado",
-        unit: product?.unit ?? orderProduct?.unit ?? "un",
+        unit: product?.unit ?? orderProduct?.unit ?? "UN",
         quantity: 0,
         total: 0,
       };
@@ -508,7 +517,7 @@ export const downloadSupplierDayCsv = (orders: Order[], allocations: PurchaseAll
         supplier,
         code: product?.code ?? "—",
         product: product?.name ?? orders.flatMap((order) => order.items).find((line) => line.productId === allocation.productId)?.name ?? "Produto não cadastrado",
-        unit: product?.unit ?? "un" as Unit,
+        unit: product?.unit ?? "UN" as Unit,
         quantity: 0,
         total: 0,
       };
