@@ -21,6 +21,7 @@ import {
   setDoc,
   writeBatch,
 } from "firebase/firestore";
+import { normalizeUnit } from "./domain";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "",
@@ -103,7 +104,20 @@ export const subscribeToCollection = <T extends { id: string }>(
     return () => undefined;
   }
   return onSnapshot(collection(firestoreDb, collectionName), (snapshot) => {
-    onValue(snapshot.docs.map((record) => ({ ...record.data(), id: record.id }) as T));
+    onValue(snapshot.docs.map((record) => {
+      const value = { ...record.data(), id: record.id } as Record<string, unknown> & { id: string };
+      if (collectionName === "products") return { ...value, unit: normalizeUnit(value.unit) } as unknown as T;
+      if (collectionName === "orders" && Array.isArray(value.items)) {
+        return {
+          ...value,
+          items: value.items.map((item) => {
+            const orderItem = item as Record<string, unknown>;
+            return { ...orderItem, unit: normalizeUnit(orderItem.unit) };
+          }),
+        } as unknown as T;
+      }
+      return value as T;
+    }));
   }, (error) => onError(error.message));
 };
 
