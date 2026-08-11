@@ -289,7 +289,7 @@ export const parseOrderText = (text: string, catalog: Product[] = products): Par
 
 const escapeHtml = (value: string | number) => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]!));
 
-const companyPrintHeader = (company: CompanyProfile, title: string, aside: string) => {
+const companyPrintHeader = (company: CompanyProfile, title: string, aside: string, customer = "") => {
   const name = company.tradeName.trim() || company.legalName.trim() || "Zeca Hortifruti";
   const locality = [company.city, company.state].filter(Boolean).join(" - ");
   const address = [company.address, locality, company.postalCode ? `CEP ${company.postalCode}` : ""].filter(Boolean).join(" · ");
@@ -300,7 +300,7 @@ const companyPrintHeader = (company: CompanyProfile, title: string, aside: strin
   ].filter(Boolean);
   const contacts = [company.phone, company.email].filter(Boolean).join(" · ");
   const details = [...registrations, address, contacts].filter(Boolean);
-  return `<header><div class="company-print"><div class="brand">${escapeHtml(name)}</div>${details.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</div><div class="document-heading"><h1>${escapeHtml(title)}</h1><strong>${escapeHtml(aside)}</strong></div></header>`;
+  return `<header><div class="company-print"><div class="brand">${escapeHtml(name)}</div>${details.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</div><div class="document-heading"><h1>${escapeHtml(title)}</h1>${customer ? `<b class="document-customer">${escapeHtml(customer)}</b>` : ""}<strong>${escapeHtml(aside)}</strong></div></header>`;
 };
 
 const openPrintDocument = (title: string, body: string, landscape = false, compact = false) => {
@@ -314,13 +314,24 @@ const openPrintDocument = (title: string, body: string, landscape = false, compa
 };
 
 export const printOrder = (order: Order, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(`Pedido ${order.number}`, `
-  ${companyPrintHeader(company, `Pedido individual ${order.number}`, `Entrega ${formatDate(order.deliveryDate)}`)}
-  <div class="meta"><div><span>Cliente</span><strong>${escapeHtml(order.customer)}</strong></div><div><span>Data do pedido</span><strong>${escapeHtml(formatDate(order.date))}</strong></div><div><span>Pagamento</span><strong>${escapeHtml(order.paymentStatus)} · ${escapeHtml(order.paymentMethod)}</strong>${order.paymentReference ? `<br><small>Referência: ${escapeHtml(order.paymentReference)}</small>` : ""}</div></div>
-  <table><thead><tr><th>Produto</th><th>Qtd.</th><th>Unidade</th><th class="right">Valor unitário</th><th class="right">Total</th><th>Peso conferido</th></tr></thead><tbody>${order.items.map((line) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.quantity)}</td><td>${escapeHtml(line.unit)}</td><td class="right">${escapeHtml(money(line.unitPrice))}</td><td class="right">${escapeHtml(money(line.quantity * line.unitPrice))}</td><td><div class="weight">${line.confirmedWeight ? escapeHtml(line.confirmedWeight) : ""}</div></td></tr>`).join("")}</tbody></table>
+  <style>
+    .individual-order .document-customer{max-width:360px;color:#173f32;font-size:18px;line-height:1.05;text-wrap:balance}
+    .individual-order .meta{margin:8px 0;gap:6px}.individual-order .meta div{padding:5px 6px}.individual-order .meta span{font-size:6px}
+    .individual-order .order-items-table{font-size:7.5px;line-height:1.08}.individual-order .order-items-table th{padding:3px 4px;font-size:6.5px}.individual-order .order-items-table td{padding:2.5px 4px}
+    .individual-order .order-items-table td:first-child{font-weight:700}.individual-order .weight{height:11px;min-width:38px}
+    .individual-order .total{gap:20px;margin-top:7px;font-size:11px}.individual-order h2{margin:8px 0 4px;font-size:10px}
+    .individual-order .note{padding:5px 6px;font-size:7.5px;line-height:1.2}.individual-order .footer{margin-top:9px;padding-top:5px;font-size:6px}
+    @page{size:A4 portrait;margin:6mm}
+  </style>
+  <main class="individual-order">
+  ${companyPrintHeader(company, `Pedido individual ${order.number}`, `Entrega ${formatDate(order.deliveryDate)}`, order.customer)}
+  <div class="meta"><div><span>Data do pedido</span><strong>${escapeHtml(formatDate(order.date))}</strong></div><div><span>Data da entrega</span><strong>${escapeHtml(formatDate(order.deliveryDate))}</strong></div><div><span>Pagamento</span><strong>${escapeHtml(order.paymentStatus)} · ${escapeHtml(order.paymentMethod)}</strong>${order.paymentReference ? `<br><small>Referência: ${escapeHtml(order.paymentReference)}</small>` : ""}</div></div>
+  <table class="order-items-table"><thead><tr><th>Produto</th><th>Qtd.</th><th>Unidade</th><th class="right">Valor unitário</th><th class="right">Total</th><th>Peso conferido</th></tr></thead><tbody>${order.items.map((line) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.quantity)}</td><td>${escapeHtml(line.unit)}</td><td class="right">${escapeHtml(money(line.unitPrice))}</td><td class="right">${escapeHtml(money(line.quantity * line.unitPrice))}</td><td><div class="weight">${line.confirmedWeight ? escapeHtml(line.confirmedWeight) : ""}</div></td></tr>`).join("")}</tbody></table>
   <div class="total"><span>Ajuste: ${escapeHtml(money(order.adjustment))}</span><strong>Total: ${escapeHtml(money(orderTotal(order)))}</strong></div>
   <h2>Observações</h2><div class="note">${escapeHtml(order.observation || "Sem observações.")}</div>
   <div class="footer">Documento operacional gerado pelo sistema Zeca Hortifruti.</div>
-`);
+  </main>
+`, false, true);
 
 export const printCompactOrdersReport = (orders: Order[], company: CompanyProfile = defaultCompanyProfile) => {
   const dates = Array.from(new Set(orders.map((order) => order.date))).sort();
@@ -341,6 +352,23 @@ export const printCompactOrdersReport = (orders: Order[], company: CompanyProfil
     <div class="footer">Relatório operacional sem valores, organizado por cliente e pedido.</div>
   `, false, true);
 };
+
+const densePurchasePrintStyles = `<style>
+  body.compact-print{padding:9px;font-size:7px}body.compact-print header{gap:8px;padding-bottom:4px;border-bottom-width:1px}
+  body.compact-print h1{font-size:13px}body.compact-print h2{margin:7px 0 4px;font-size:9px}
+  body.compact-print .company-print{max-width:62%;gap:1px}body.compact-print .company-print .brand{margin-bottom:1px;font-size:10px}
+  body.compact-print .company-print span{font-size:5.8px;line-height:1.1}body.compact-print .document-heading{gap:2px}body.compact-print .document-heading strong{font-size:7px}
+  body.compact-print .meta{gap:4px;margin:5px 0}body.compact-print .meta div{padding:4px 5px}body.compact-print .meta span{font-size:5.5px}
+  body.compact-print .purchase-print-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:4px}
+  body.compact-print .purchase-print-item{padding:4px;border-radius:3px}body.compact-print .purchase-print-item__title{gap:3px;padding-bottom:2px}
+  body.compact-print .purchase-print-item__title strong,body.compact-print .purchase-print-item__title b{font-size:6.8px;line-height:1.1}
+  body.compact-print .purchase-print-item__detail{grid-template-columns:43px minmax(0,1fr);gap:3px;margin-top:2px;font-size:6px;line-height:1.14;overflow-wrap:anywhere}
+  body.compact-print .purchase-print-item__detail>span{font-size:5.2px}body.compact-print .purchase-print-item__check{gap:3px;margin-top:2px;font-size:5.2px}
+  body.compact-print .check{width:8px;height:8px;margin-right:2px}body.compact-print .supplier-section{margin-top:7px}
+  body.compact-print .supplier-section h2{padding:4px 6px;border-left-width:2px}body.compact-print .supplier-section h2 span{font-size:7.5px}
+  body.compact-print .supplier-section__total{padding:3px 4px;font-size:8px}body.compact-print .footer{margin-top:7px;padding-top:4px;font-size:5.5px}
+  @page{size:A4 landscape;margin:4mm}
+</style>`;
 
 const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean, company: CompanyProfile) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
@@ -364,11 +392,12 @@ const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], suppl
       return `<article class="purchase-print-item"><div class="purchase-print-item__title"><span class="check"></span><strong>${escapeHtml(line.name)}</strong><b>${escapeHtml(line.total.toLocaleString("pt-BR"))} ${escapeHtml(line.unit)}</b></div><div class="purchase-print-item__detail"><span>${includeCosts ? "Comprar em" : "Retirar em"}</span><div>${supplierLines.map(escapeHtml).join("<br>")}</div></div><div class="purchase-print-item__detail"><span>Separar para</span><div>${line.customers.map(escapeHtml).join("<br>")}</div></div><div class="purchase-print-item__check">Carregado <span class="check"></span></div></article>`;
     }).join("");
   return openPrintDocument(documentTitle, `
+    ${densePurchasePrintStyles}
     ${companyPrintHeader(company, documentTitle, `Entrega ${formatDate(orders[0]?.deliveryDate ?? "")}`)}
     <div class="meta"><div><span>Pedidos</span><strong>${orders.length}</strong></div><div><span>Clientes</span><strong>${new Set(orders.map((order) => order.customer)).size}</strong></div><div><span>Conferência</span><strong>CEASA</strong></div></div>
     <div class="purchase-print-grid">${productCards || '<div class="note">Nenhum produto encontrado para esta entrega.</div>'}</div>
     <div class="footer">${includeCosts ? "Use esta folha para comprar, registrar custos e separar por cliente." : "Folha sem valores de compra para separação e conferência do carregamento."}</div>
-  `, false, true);
+  `, true, true);
 };
 
 export const printPurchaseSheet = (orders: Order[], allocations: PurchaseAllocation[] = [], supplierCatalog: Supplier[] = suppliers, company: CompanyProfile = defaultCompanyProfile) => printDaySheet(orders, allocations, supplierCatalog, true, company);
@@ -415,14 +444,15 @@ export const printSupplierDaySheet = (orders: Order[], allocations: PurchaseAllo
   const sections = supplierGroups.map((group) => {
     const lines = Array.from(group.lines.values()).sort((left, right) => left.code.localeCompare(right.code, "pt-BR", { numeric: true }) || left.product.localeCompare(right.product, "pt-BR"));
     const supplierTotal = lines.reduce((sum, line) => sum + line.total, 0);
-    return `<section class="supplier-section"><h2><span>${escapeHtml(group.supplier)}</span><span>${lines.length} produto(s)</span></h2><div class="purchase-print-grid">${lines.map((line) => `<article class="purchase-print-item"><div class="purchase-print-item__title"><span class="check"></span><strong>${escapeHtml(line.code)} · ${escapeHtml(line.product)}</strong><b>${escapeHtml(line.quantity.toLocaleString("pt-BR"))} ${escapeHtml(line.unit)}</b></div><div class="purchase-print-item__detail"><span>Custo unitário</span><div>${escapeHtml(money(line.quantity ? line.total / line.quantity : 0))}/${escapeHtml(line.unit)}</div></div><div class="purchase-print-item__detail"><span>Total</span><div><strong>${escapeHtml(money(line.total))}</strong></div></div></article>`).join("")}</div><div class="supplier-section__total"><strong>Subtotal: ${escapeHtml(money(supplierTotal))}</strong></div></section>`;
+    return `<section class="supplier-section"><h2><span>${escapeHtml(group.supplier)}</span><span>${lines.length} produto(s)</span></h2><div class="purchase-print-grid">${lines.map((line) => `<article class="purchase-print-item"><div class="purchase-print-item__title"><span class="check"></span><strong>${escapeHtml(line.product)}</strong><b>${escapeHtml(line.quantity.toLocaleString("pt-BR"))} ${escapeHtml(line.unit)}</b></div><div class="purchase-print-item__detail"><span>Custo unitário</span><div>${escapeHtml(money(line.quantity ? line.total / line.quantity : 0))}/${escapeHtml(line.unit)}</div></div><div class="purchase-print-item__detail"><span>Total</span><div><strong>${escapeHtml(money(line.total))}</strong></div></div></article>`).join("")}</div><div class="supplier-section__total"><strong>Subtotal: ${escapeHtml(money(supplierTotal))}</strong></div></section>`;
   }).join("");
   return openPrintDocument("Compras por fornecedor do dia", `
+    ${densePurchasePrintStyles}
     ${companyPrintHeader(company, "Compras por fornecedor do dia", `Entrega ${formatDate(deliveryDate)}`)}
     <div class="meta"><div><span>Fornecedores</span><strong>${supplierGroups.length}</strong></div><div><span>Produtos distribuídos</span><strong>${supplierGroups.reduce((sum, group) => sum + group.lines.size, 0)}</strong></div><div><span>Custo planejado</span><strong>${escapeHtml(money(total))}</strong></div></div>
     ${sections || '<div class="note">Nenhuma compra foi distribuída entre fornecedores para esta entrega.</div>'}
     <div class="footer">Folha agrupada por fornecedor para compra e conferência da entrega selecionada.</div>
-  `, false, true);
+  `, true, true);
 };
 
 export const buildPurchaseHistory = (allocations: PurchaseAllocation[], supplierCatalog: Supplier[], savedRecords: PurchaseRecord[]): PurchaseRecord[] => {
