@@ -316,11 +316,11 @@ const openPrintDocument = (title: string, body: string, landscape = false, compa
 export const printOrder = (order: Order, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(`Pedido ${order.number}`, `
   <style>
     .individual-order .document-customer{max-width:360px;color:#173f32;font-size:18px;line-height:1.05;text-wrap:balance}
-    .individual-order .meta{margin:8px 0;gap:6px}.individual-order .meta div{padding:5px 6px}.individual-order .meta span{font-size:6px}
-    .individual-order .order-items-table{font-size:7.5px;line-height:1.08}.individual-order .order-items-table th{padding:3px 4px;font-size:6.5px}.individual-order .order-items-table td{padding:2.5px 4px}
+    .individual-order .meta{margin:8px 0;gap:6px}.individual-order .meta div{padding:5px 6px}.individual-order .meta span{font-size:7px}
+    .individual-order .order-items-table{font-size:9.2px;line-height:1.12}.individual-order .order-items-table th{padding:3px 4px;font-size:7.6px}.individual-order .order-items-table td{padding:2.8px 4px}
     .individual-order .order-items-table td:first-child{font-weight:700}.individual-order .weight{height:11px;min-width:38px}
-    .individual-order .total{gap:20px;margin-top:7px;font-size:11px}.individual-order h2{margin:8px 0 4px;font-size:10px}
-    .individual-order .note{padding:5px 6px;font-size:7.5px;line-height:1.2}.individual-order .footer{margin-top:9px;padding-top:5px;font-size:6px}
+    .individual-order .total{gap:20px;margin-top:7px;font-size:12px}.individual-order h2{margin:8px 0 4px;font-size:11px}
+    .individual-order .note{padding:5px 6px;font-size:8.5px;line-height:1.2}.individual-order .footer{margin-top:9px;padding-top:5px;font-size:7px}
     @page{size:A4 portrait;margin:6mm}
   </style>
   <main class="individual-order">
@@ -346,6 +346,10 @@ export const printCompactOrdersReport = (orders: Order[], company: CompanyProfil
     return `<section class="compact-order"><div class="compact-order__heading"><div><strong>${escapeHtml(order.customer)}</strong><span>${escapeHtml(order.number)}</span></div><small>Entrega ${escapeHtml(formatDate(order.deliveryDate))} · ${escapeHtml(orderQuantity.toLocaleString("pt-BR"))} na soma das quantidades</small></div><div class="compact-order__items">${order.items.map((line) => `<div class="compact-order__item"><strong>${escapeHtml(line.quantity.toLocaleString("pt-BR"))} ${escapeHtml(line.unit)}</strong><span>${escapeHtml(line.name)}</span></div>`).join("")}</div>${observation}</section>`;
   }).join("");
   return openPrintDocument("Pedidos e produtos", `
+    <style>
+      .compact-orders .compact-order__heading strong{font-size:13px}.compact-orders .compact-order__heading span,.compact-orders .compact-order__heading small{font-size:9px}
+      .compact-orders .compact-order__item{min-height:23px;padding:3px 2px;font-size:10.3px;line-height:1.15}.compact-orders .compact-order__note{font-size:9px}
+    </style>
     ${companyPrintHeader(company, "Pedidos e produtos", period)}
     <div class="meta"><div><span>Pedidos</span><strong>${orders.length}</strong></div><div><span>Clientes</span><strong>${new Set(orders.map((order) => order.customer)).size}</strong></div><div><span>Soma das quantidades</span><strong>${escapeHtml(quantityTotal.toLocaleString("pt-BR"))}</strong></div></div>
     <div class="compact-orders">${sections || '<div class="note">Nenhum pedido encontrado com os filtros selecionados.</div>'}</div>
@@ -354,19 +358,19 @@ export const printCompactOrdersReport = (orders: Order[], company: CompanyProfil
 };
 
 const densePurchasePrintStyles = `<style>
-  body.compact-print{padding:9px;font-size:7px}body.compact-print header{gap:8px;padding-bottom:4px;border-bottom-width:1px}
+  body.compact-print{padding:9px;font-size:8px}body.compact-print header{gap:8px;padding-bottom:4px;border-bottom-width:1px}
   body.compact-print h1{font-size:13px}body.compact-print h2{margin:7px 0 4px;font-size:9px}
   body.compact-print .company-print{max-width:62%;gap:1px}body.compact-print .company-print .brand{margin-bottom:1px;font-size:10px}
-  body.compact-print .company-print span{font-size:5.8px;line-height:1.1}body.compact-print .document-heading{gap:2px}body.compact-print .document-heading strong{font-size:7px}
-  body.compact-print .meta{gap:4px;margin:5px 0}body.compact-print .meta div{padding:4px 5px}body.compact-print .meta span{font-size:5.5px}
+  body.compact-print .company-print span{font-size:6.2px;line-height:1.1}body.compact-print .document-heading{gap:2px}body.compact-print .document-heading strong{font-size:7.5px}
+  body.compact-print .meta{gap:4px;margin:5px 0}body.compact-print .meta div{padding:4px 5px}body.compact-print .meta span{font-size:6.2px}
   body.compact-print .purchase-print-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:4px}
   body.compact-print .purchase-print-item{padding:4px;border-radius:3px}body.compact-print .purchase-print-item__title{gap:3px;padding-bottom:2px}
-  body.compact-print .purchase-print-item__title strong,body.compact-print .purchase-print-item__title b{font-size:6.8px;line-height:1.1}
-  body.compact-print .purchase-print-item__detail{grid-template-columns:43px minmax(0,1fr);gap:3px;margin-top:2px;font-size:6px;line-height:1.14;overflow-wrap:anywhere}
-  body.compact-print .purchase-print-item__detail>span{font-size:5.2px}body.compact-print .purchase-print-item__check{gap:3px;margin-top:2px;font-size:5.2px}
+  body.compact-print .purchase-print-item__title strong,body.compact-print .purchase-print-item__title b{font-size:8.5px;line-height:1.14}
+  body.compact-print .purchase-print-item__detail{grid-template-columns:46px minmax(0,1fr);gap:3px;margin-top:2px;font-size:7.2px;line-height:1.16;overflow-wrap:anywhere}
+  body.compact-print .purchase-print-item__detail>span{font-size:6.2px}body.compact-print .purchase-print-item__check{gap:3px;margin-top:2px;font-size:6.2px}
   body.compact-print .check{width:8px;height:8px;margin-right:2px}body.compact-print .supplier-section{margin-top:7px}
-  body.compact-print .supplier-section h2{padding:4px 6px;border-left-width:2px}body.compact-print .supplier-section h2 span{font-size:7.5px}
-  body.compact-print .supplier-section__total{padding:3px 4px;font-size:8px}body.compact-print .footer{margin-top:7px;padding-top:4px;font-size:5.5px}
+  body.compact-print .supplier-section h2{padding:4px 6px;border-left-width:2px}body.compact-print .supplier-section h2 span{font-size:8.5px}
+  body.compact-print .supplier-section__total{padding:3px 4px;font-size:9px}body.compact-print .footer{margin-top:7px;padding-top:4px;font-size:6.2px}
   @page{size:A4 landscape;margin:4mm}
 </style>`;
 
