@@ -12,8 +12,8 @@ Protótipo navegável do sistema operacional da Zeca Hortifruti. Esta versão fo
 - impressão individual dos pedidos e da folha operacional do CEASA, incluindo a divisão por fornecedor;
 - demanda automática de compras e divisão entre vários fornecedores;
 - histórico demonstrativo de vendas, compras, recebimentos e pagamentos, com filtros e exportação Excel/PDF;
-- cadastros completos e editáveis de clientes, produtos, fornecedores e prestadores;
-- controle dos pagamentos de prestadores, com filtros, totais e exportação Excel/PDF;
+- cadastros completos e editáveis de clientes, produtos, fornecedores e custos adicionais;
+- controle de custos adicionais, com filtros, totais e exportação Excel/PDF;
 - busca de produtos por nome ou número na inclusão do pedido;
 - produtos com custo e venda de referência, sem controle de estoque;
 - acompanhamento independente por data da operação: pedidos, compras, conferência e carregamento;
