@@ -316,9 +316,9 @@ const openPrintDocument = (title: string, body: string, landscape = false, compa
 export const printOrder = (order: Order, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(`Pedido ${order.number}`, `
   <style>
     .individual-order header{gap:7px;padding-bottom:2px;border-bottom-width:1px}.individual-order h1{font-size:13px}
-    .individual-order .company-print{max-width:55%;gap:0}.individual-order .company-print .brand{margin:0;font-size:10px}.individual-order .company-print span{font-size:5.8px;line-height:1.03}
+    .individual-order .company-print{max-width:55%;gap:0}.individual-order .company-print .brand{margin:0;font-size:10.5px}.individual-order .company-print span{font-size:6.6px;line-height:1.04}
     .individual-order .document-heading{gap:1px}.individual-order .document-heading strong{font-size:7px}.individual-order .document-customer{max-width:360px;color:#173f32;font-size:15px;line-height:1.02;text-wrap:balance}
-    .individual-order .order-items-table{margin-top:2px;font-size:8.9px;line-height:1.06}.individual-order .order-items-table th{padding:1.6px 3px;font-size:7.3px}.individual-order .order-items-table td{padding:1px 3px}
+    .individual-order .order-items-table{margin-top:2px;font-size:9.2px;line-height:1.06}.individual-order .order-items-table th{padding:1.6px 3px;font-size:7.5px}.individual-order .order-items-table td{padding:1px 3px}
     .individual-order .order-items-table td:first-child{font-weight:700}.individual-order .weight{height:8px;min-width:35px}
     .individual-order .total{gap:16px;margin-top:3px;font-size:10.5px}.individual-order h2{margin:4px 0 2px;font-size:9px}
     .individual-order .note{padding:3px 4px;font-size:7.5px;line-height:1.08}.individual-order .footer{margin-top:2px;padding-top:1px;border-top:0;font-size:5.5px}
@@ -368,7 +368,7 @@ const densePurchasePrintStyles = `<style>
   body.compact-print .purchase-print-item__title strong,body.compact-print .purchase-print-item__title b{font-size:8.5px;line-height:1.14}
   body.compact-print .purchase-print-item__detail{grid-template-columns:42px minmax(0,1fr);gap:3px;margin-top:2px;font-size:6.2px;line-height:1.12;overflow-wrap:anywhere}
   body.compact-print .purchase-print-item__detail>span{font-size:5.3px}
-  body.compact-print .check{width:8px;height:8px;margin-right:2px}body.compact-print .supplier-section{margin-top:7px}
+  body.compact-print .check{width:8px;height:8px;margin-right:2px}body.compact-print .supplier-section{margin-top:7px;padding-bottom:4px;border-bottom:1px solid #81938a}
   body.compact-print .supplier-section h2{padding:4px 6px;border-left-width:2px}body.compact-print .supplier-section h2 span{font-size:8.5px}
   body.compact-print .supplier-section__total{padding:3px 4px;font-size:9px}body.compact-print .footer{margin-top:7px;padding-top:4px;font-size:6.2px}
   @page{size:A4 landscape;margin:4mm}
