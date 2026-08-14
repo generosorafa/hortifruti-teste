@@ -315,13 +315,13 @@ const openPrintDocument = (title: string, body: string, landscape = false, compa
 
 export const printOrder = (order: Order, company: CompanyProfile = defaultCompanyProfile) => openPrintDocument(`Pedido ${order.number}`, `
   <style>
-    .individual-order header{gap:7px;padding-bottom:2px;border-bottom-width:1px}.individual-order h1{font-size:13px}
-    .individual-order .company-print{max-width:55%;gap:0}.individual-order .company-print .brand{margin:0;font-size:15.1px}.individual-order .company-print span{font-size:9.5px;line-height:1.04}
-    .individual-order .document-heading{gap:1px}.individual-order .document-heading strong{font-size:8.1px}.individual-order .document-customer{max-width:360px;color:#173f32;font-size:15px;line-height:1.02;text-wrap:balance}
-    .individual-order .order-items-table{margin-top:2px;font-size:13.8px;line-height:.96}.individual-order .order-items-table th{padding:1.6px 3px;font-size:11.2px}.individual-order .order-items-table td{padding:1px 3px}
-    .individual-order .order-items-table td:first-child{font-weight:700}.individual-order .weight{height:8px;min-width:35px}
-    .individual-order .total{gap:16px;margin-top:3px;font-size:10.5px}.individual-order h2{margin:4px 0 2px;font-size:9px}
-    .individual-order .note{padding:3px 4px;font-size:7.5px;line-height:1.08}.individual-order .footer{margin-top:2px;padding-top:1px;border-top:0;font-size:5.5px}
+    .individual-order{-webkit-print-color-adjust:exact;print-color-adjust:exact}.individual-order header{gap:7px;padding:2px 3px 2px 6px;border-top:2px solid #174638;border-bottom:1px solid #174638;background:linear-gradient(90deg,#edf7f1 0,#fff 42%);box-shadow:inset 3px 0 #7aaa91}.individual-order h1{font-size:13px}
+    .individual-order .company-print{max-width:55%;gap:0}.individual-order .company-print .brand{margin:0;font-size:16.6px}.individual-order .company-print span{font-size:10.5px;line-height:1.04}
+    .individual-order .document-heading{gap:1px}.individual-order .document-heading strong{font-size:9.3px}.individual-order .document-customer{max-width:360px;color:#173f32;font-size:15px;line-height:1.02;text-wrap:balance}
+    .individual-order .order-items-table{margin-top:4mm;font-size:13.8px;line-height:.96}.individual-order .order-items-table th{padding:1.75px 3px;color:#fff;background:#1d5a45;border-bottom-color:#174638;font-size:13.8px}.individual-order .order-items-table td{padding:1.75px 3px;border-bottom-color:#c8dbd1}
+    .individual-order .order-items-table tbody tr:nth-child(odd){background:#fff}.individual-order .order-items-table tbody tr:nth-child(even){background:#edf7f1}.individual-order .order-items-table td:first-child{font-weight:700}.individual-order .order-items-table td:last-child{position:relative}.individual-order .weight{position:absolute;right:3px;bottom:1px;left:3px;height:9px;min-width:0}
+    .individual-order .total{gap:16px;margin-top:3px;padding-right:3px;color:#173f32;border-top:1px solid #9ebcac;background:#f2f8f5;box-shadow:inset 3px 0 #2d7157;font-size:10.5px}.individual-order h2{margin:4px 0 2px;font-size:9px}
+    .individual-order .note{padding:3px 4px;font-size:7.5px;line-height:1.08}.individual-order .footer{display:flex;justify-content:space-between;margin-top:2px;padding-top:1px;color:#557066;border-top:1px solid #c7d9d0;font-size:5.5px}.individual-order .footer::after{content:"CONTROLE OPERACIONAL";font-weight:700;letter-spacing:.09em}
     @page{size:A4 portrait;margin:2mm}
   </style>
   <main class="individual-order">
@@ -358,10 +358,10 @@ export const printCompactOrdersReport = (orders: Order[], company: CompanyProfil
 };
 
 const densePurchasePrintStyles = `<style>
-  body.compact-print{padding:9px;font-size:8px}body.compact-print header{gap:8px;padding-bottom:4px;border-bottom-width:1px}
+  body.compact-print{padding:4px;font-size:8px}body.compact-print header{gap:8px;padding-bottom:4px;border-bottom-width:1px}
   body.compact-print h1{font-size:13px}body.compact-print h2{margin:7px 0 4px;font-size:9px}
-  body.compact-print .company-print{max-width:62%;gap:1px}body.compact-print .company-print .brand{margin-bottom:1px;font-size:10px}
-  body.compact-print .company-print span{font-size:6.2px;line-height:1.1}body.compact-print .document-heading{gap:2px}body.compact-print .document-heading strong{font-size:7.5px}
+  body.compact-print .company-print{max-width:62%;gap:1px}body.compact-print .company-print .brand{margin-bottom:1px;font-size:16.6px}
+  body.compact-print .company-print span{font-size:10.5px;line-height:1.04}body.compact-print .document-heading{gap:2px}body.compact-print .document-heading strong{font-size:9.3px}
   body.compact-print .meta{gap:4px;margin:5px 0}body.compact-print .meta div{padding:4px 5px}body.compact-print .meta span{font-size:6.2px}
   body.compact-print .purchase-print-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:4px}
   body.compact-print .purchase-print-item{padding:4px;border-radius:3px}body.compact-print .purchase-print-item__title{gap:3px;padding-bottom:2px}
@@ -371,7 +371,7 @@ const densePurchasePrintStyles = `<style>
   body.compact-print .check{width:8px;height:8px;margin-right:2px}body.compact-print .supplier-section{margin-top:7px;padding-bottom:4px;border-bottom:1px solid #81938a}
   body.compact-print .supplier-section h2{padding:4px 6px;border-left-width:2px}body.compact-print .supplier-section h2 span{font-size:8.5px}
   body.compact-print .supplier-section__total{padding:3px 4px;font-size:9px}body.compact-print .footer{margin-top:7px;padding-top:4px;font-size:6.2px}
-  @page{size:A4 landscape;margin:4mm}
+  @page{size:A4 landscape;margin:2mm}
 </style>`;
 
 const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean, company: CompanyProfile) => {
