@@ -134,7 +134,7 @@ jobs:
         run: npm run security:audit
       - name: Revisar novas dependências do Pull Request
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
 
       - name: Inicializar CodeQL
         uses: github/codeql-action/init@v4
