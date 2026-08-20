@@ -1,0 +1,52 @@
+name: Nova função
+description: Proponha uma capacidade ou módulo que ainda não existe no sistema.
+title: "[Nova função] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: "Use este modelo para uma capacidade realmente nova. Divida funções independentes em Issues diferentes."
+  - type: textarea
+    id: necessidade
+    attributes:
+      label: Necessidade operacional
+      description: Explique quem precisa da função, para quê e com que frequência.
+    validations:
+      required: true
+  - type: textarea
+    id: fluxo
+    attributes:
+      label: Fluxo desejado
+      description: Descreva as etapas principais da experiência esperada.
+    validations:
+      required: true
+  - type: textarea
+    id: dados
+    attributes:
+      label: Dados, permissões e integrações
+      description: Informe dados salvos, usuários envolvidos, Firebase, importações ou exportações.
+      placeholder: Não se aplica.
+    validations:
+      required: true
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Critérios de aceite
+      placeholder: "- [ ] ...\n- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: validacao
+    attributes:
+      label: Validação prevista
+      description: Informe como a nova função será testada de ponta a ponta.
+    validations:
+      required: true
+  - type: textarea
+    id: riscos
+    attributes:
+      label: Riscos, limitações e dependências
+      placeholder: Nenhum risco conhecido.
+    validations:
+      required: true

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contexto e fluxo obrigatório do projeto
+    url: https://github.com/generosorafa/hortifruti-teste/blob/main/CONTEXTO_PROJETO.md
+    about: Leia antes de abrir uma tarefa.
