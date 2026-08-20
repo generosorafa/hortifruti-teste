@@ -135,6 +135,8 @@ jobs:
       - name: Revisar novas dependências do Pull Request
         if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
 
       - name: Inicializar CodeQL
         uses: github/codeql-action/init@v4
