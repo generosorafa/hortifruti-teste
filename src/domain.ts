@@ -189,7 +189,8 @@ export const initialPurchases: PurchaseRecord[] = [
 ];
 
 const item = (productId: string, quantity: number, price?: number): OrderItem => {
-  const product = products.find((candidate) => candidate.id === productId)!;
+  const product = products.find((candidate) => candidate.id === productId);
+  if (!product) throw new Error(`Produto demonstrativo não encontrado: ${productId}`);
   return { id: `${productId}-${quantity}-${price ?? product.saleReference}`, productId, name: product.name, quantity, unit: product.unit, unitPrice: price ?? product.saleReference, includeInPurchase: true };
 };
 
@@ -287,7 +288,8 @@ export const parseOrderText = (text: string, catalog: Product[] = products): Par
     return { id: `parsed-${Date.now()}-${index}`, raw, quantity, unitPrice, ...suggestion };
   });
 
-const escapeHtml = (value: string | number) => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]!));
+const htmlEntities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
+const escapeHtml = (value: string | number) => String(value).replace(/[&<>'"]/g, (character) => htmlEntities[character] ?? character);
 
 const companyPrintHeader = (company: CompanyProfile, title: string, aside: string, customer = "") => {
   const name = company.tradeName.trim() || company.legalName.trim() || "Zeca Hortifruti";
@@ -308,7 +310,7 @@ const openPrintDocument = (title: string, body: string, landscape = false, compa
   if (!popup) return false;
   popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
     *{box-sizing:border-box}body{margin:0;padding:28px;font:12px Arial,sans-serif;color:#15231d}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:2px solid #173f32}h1{margin:0;font-size:22px}h2{margin:24px 0 10px;font-size:15px}.brand{font-weight:800;color:#174638;text-transform:uppercase}.company-print{max-width:58%;display:flex;flex-direction:column;gap:3px}.company-print .brand{margin-bottom:3px;font-size:16px}.company-print span{color:#53625a;font-size:9px;line-height:1.35}.document-heading{display:flex;align-items:flex-end;flex-direction:column;gap:7px;text-align:right}.document-heading strong{font-size:11px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.meta div,.note{padding:10px;border:1px solid #ccd7d1;border-radius:6px}.meta span{display:block;margin-bottom:4px;color:#65736c;font-size:9px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;text-align:left;border-bottom:1px solid #d9e1dd;vertical-align:top}th{background:#edf4f0;font-size:9px;text-transform:uppercase}.report-table{font-size:9px}.report-table th,.report-table td{padding:6px 5px;overflow-wrap:anywhere}.right{text-align:right}.total{display:flex;justify-content:flex-end;gap:30px;margin-top:15px;font-size:15px}.weight{height:17px;min-width:48px;border-bottom:1px solid #58665f}.check{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:middle;border:1px solid #607068}.customer-breakdown,.supplier-breakdown{color:#516159;font-size:10px;line-height:1.55}.supplier-section{margin-top:24px;break-inside:avoid}.supplier-section h2{display:flex;justify-content:space-between;gap:20px;padding:10px 12px;margin:0;background:#dfece5;border-left:4px solid #174638}.supplier-section h2 span{font-size:11px}.supplier-section__total{display:flex;justify-content:flex-end;padding:10px 7px;font-size:13px}.compact-orders{display:grid;gap:12px}.compact-order{padding:9px 10px;border:1px solid #ccd7d1;border-radius:6px;break-inside:avoid}.compact-order__heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid #d9e1dd}.compact-order__heading div{display:flex;align-items:baseline;gap:8px}.compact-order__heading strong{font-size:12px}.compact-order__heading span,.compact-order__heading small{color:#617068;font-size:8px}.compact-order__items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:12px;row-gap:0;margin-top:4px}.compact-order__item{display:flex;align-items:center;justify-content:flex-start;gap:5px;min-height:22px;padding:3px 2px;border-bottom:1px dotted #d9e1dd;font-size:9px}.compact-order__item strong{flex:0 0 auto;white-space:nowrap}.compact-order__note{display:flex;gap:5px;margin-top:6px;padding:5px 7px;color:#425249;background:#f3f7f5;border-left:3px solid #6fa483;font-size:8px;line-height:1.35}.compact-order__note strong{flex:0 0 auto}.purchase-print-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.purchase-print-item{padding:7px 8px;border:1px solid #ccd7d1;border-radius:5px;break-inside:avoid}.purchase-print-item__title{display:flex;align-items:center;gap:5px;padding-bottom:4px;border-bottom:1px solid #e1e7e4}.purchase-print-item__title strong{flex:1;font-size:9px}.purchase-print-item__title b{font-size:9px;white-space:nowrap}.purchase-print-item__detail{display:grid;grid-template-columns:70px 1fr;gap:5px;margin-top:4px;font-size:8px;line-height:1.3}.purchase-print-item__detail>span{color:#68776f;text-transform:uppercase;font-size:7px}.purchase-print-item__check{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:4px;color:#68776f;font-size:7px;text-transform:uppercase}.footer{margin-top:32px;padding-top:12px;color:#718078;border-top:1px solid #d9e1dd;font-size:9px}.compact-print{padding:20px;font-size:10px}.compact-print header{gap:16px;padding-bottom:10px}.compact-print h1{font-size:18px}.compact-print h2{margin:14px 0 7px;font-size:13px}.compact-print .company-print{gap:2px}.compact-print .company-print .brand{font-size:14px}.compact-print .company-print span{font-size:8px;line-height:1.2}.compact-print .document-heading{gap:4px}.compact-print .document-heading strong{font-size:9px}.compact-print .meta{gap:8px;margin:11px 0}.compact-print .meta div,.compact-print .note{padding:7px}.compact-print .meta span{margin-bottom:2px;font-size:7px}.compact-print th,.compact-print td{padding:4px 5px}.compact-print th{font-size:7px}.compact-print .report-table{font-size:8px}.compact-print .report-table th,.compact-print .report-table td{padding:4px}.compact-print .customer-breakdown,.compact-print .supplier-breakdown{font-size:8px;line-height:1.3}.compact-print .supplier-section{margin-top:14px}.compact-print .supplier-section h2{padding:7px 9px}.compact-print .supplier-section h2 span{font-size:9px}.compact-print .supplier-section__total{padding:6px 5px;font-size:10px}.compact-print .check{width:11px;height:11px}.compact-print .footer{margin-top:18px;padding-top:7px;font-size:7px}@page{size:${landscape ? "landscape" : "auto"};margin:${compact ? "8mm" : "10mm"}}@media print{body{padding:0}.no-print{display:none}}
-  </style></head><body class="${compact ? "compact-print" : ""}">${body}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`);
+  </style></head><body class="${compact ? "compact-print" : ""}">${body}<script>setTimeout(()=>window.print(),250)</script></body></html>`);
   popup.document.close();
   return true;
 };
@@ -376,12 +378,14 @@ const densePurchasePrintStyles = `<style>
 
 const printDaySheet = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean, company: CompanyProfile) => {
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
-  orders.forEach((order) => order.items.filter((line) => !includeCosts || line.includeInPurchase !== false).forEach((line) => {
-    const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
-    current.total += line.quantity;
-    current.customers.push(`${order.customer}: ${line.quantity} ${line.unit}`);
-    grouped.set(line.productId, current);
-  }));
+  orders.forEach((order) => {
+    order.items.filter((line) => !includeCosts || line.includeInPurchase !== false).forEach((line) => {
+      const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
+      current.total += line.quantity;
+      current.customers.push(`${order.customer}: ${line.quantity} ${line.unit}`);
+      grouped.set(line.productId, current);
+    });
+  });
   const documentTitle = includeCosts ? "Compras do dia" : "Carregamento do dia";
   const productCards = Array.from(grouped.values())
     .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"))
@@ -411,10 +415,12 @@ export const printLoadSheet = printPurchaseSheet;
 export const printSupplierDaySheet = (orders: Order[], allocations: PurchaseAllocation[], productCatalog: Product[], supplierCatalog: Supplier[], company: CompanyProfile = defaultCompanyProfile) => {
   const deliveryDate = orders[0]?.deliveryDate ?? "";
   const orderProducts = new Map<string, Pick<Product, "name" | "unit" | "code">>();
-  orders.forEach((order) => order.items.forEach((line) => {
-    const product = productCatalog.find((candidate) => candidate.id === line.productId);
-    orderProducts.set(line.productId, { name: line.name, unit: line.unit, code: product?.code ?? "—" });
-  }));
+  orders.forEach((order) => {
+    order.items.forEach((line) => {
+      const product = productCatalog.find((candidate) => candidate.id === line.productId);
+      orderProducts.set(line.productId, { name: line.name, unit: line.unit, code: product?.code ?? "—" });
+    });
+  });
   const grouped = new Map<string, {
     supplier: string;
     lines: Map<string, { code: string; product: string; unit: Unit; quantity: number; total: number }>;
@@ -510,12 +516,14 @@ const csvNumber = (value: number) => value.toLocaleString("pt-BR", { useGrouping
 const downloadDaySheetCsv = (orders: Order[], allocations: PurchaseAllocation[], supplierCatalog: Supplier[], includeCosts: boolean) => {
   const deliveryDate = orders[0]?.deliveryDate ?? "sem-data";
   const grouped = new Map<string, { productId: string; name: string; unit: Unit; total: number; customers: string[] }>();
-  orders.forEach((order) => order.items.filter((line) => !includeCosts || line.includeInPurchase !== false).forEach((line) => {
-    const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
-    current.total += line.quantity;
-    current.customers.push(`${order.customer}: ${csvNumber(line.quantity)} ${line.unit}`);
-    grouped.set(line.productId, current);
-  }));
+  orders.forEach((order) => {
+    order.items.filter((line) => !includeCosts || line.includeInPurchase !== false).forEach((line) => {
+      const current = grouped.get(line.productId) ?? { productId: line.productId, name: line.name, unit: line.unit, total: 0, customers: [] };
+      current.total += line.quantity;
+      current.customers.push(`${order.customer}: ${csvNumber(line.quantity)} ${line.unit}`);
+      grouped.set(line.productId, current);
+    });
+  });
   const rows = Array.from(grouped.values())
     .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"))
     .flatMap((line) => {

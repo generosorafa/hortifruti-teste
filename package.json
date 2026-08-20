@@ -3,11 +3,27 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "npm@11.11.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "test:rules": "npx --yes firebase-tools@latest emulators:exec --project demo-zeca-hortifruti --only firestore \"node --test tests/firestore.rules.test.mjs\""
+    "dev": "vite --configLoader runner",
+    "build": "tsc -b && vite build --configLoader runner",
+    "preview": "vite preview --configLoader runner",
+    "lint": "biome lint .",
+    "typecheck": "tsc -b",
+    "arch:check": "arch-contract check --config arch-contract.yaml",
+    "deps:check": "knip --include files,dependencies,unlisted,unresolved,cycles",
+    "test": "vitest run --configLoader runner",
+    "test:coverage": "vitest run --coverage --configLoader runner",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:rules": "firebase emulators:exec --project demo-zeca-hortifruti --only firestore \"node --test tests/firestore.rules.test.mjs\"",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
+    "performance:budget": "node scripts/check-bundle-budget.mjs",
+    "quality:static": "npm run lint && npm run typecheck && npm run arch:check && npm run deps:check",
+    "quality": "npm run quality:static && npm run test:coverage && npm run build && npm run performance:budget && npm run security:audit"
   },
   "dependencies": {
     "firebase": "^12.16.0",
@@ -16,11 +32,20 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.9",
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
     "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "1.62.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "4.1.11",
+    "arch-contract": "0.3.0",
+    "firebase-tools": "15.28.1",
+    "knip": "6.32.2",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "4.1.11"
   }
 }

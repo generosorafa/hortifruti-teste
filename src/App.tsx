@@ -13,12 +13,10 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   ClipboardList,
-  Clock3,
   CreditCard,
   Edit3,
   Download,
   FileText,
-  Filter,
   LayoutDashboard,
   Leaf,
   ListFilter,
@@ -583,7 +581,7 @@ function PurchasesPage({ orders, selectedDate, setSelectedDate, allocations, pro
   const currentAllocations = allocations.filter((allocation) => allocation.deliveryDate === selectedDate);
   const suppliersForProduct = (productId: string, currentSupplierId?: string) => {
     const product = products.find((candidate) => candidate.id === productId);
-    const restricted = product?.supplierIds?.length ? suppliers.filter((supplier) => product.supplierIds!.includes(supplier.id)) : suppliers;
+    const restricted = product?.supplierIds?.length ? suppliers.filter((supplier) => product.supplierIds?.includes(supplier.id)) : suppliers;
     const currentSupplier = currentSupplierId ? suppliers.find((supplier) => supplier.id === currentSupplierId) : undefined;
     return currentSupplier && !restricted.some((supplier) => supplier.id === currentSupplier.id) ? [currentSupplier, ...restricted] : restricted;
   };
@@ -677,7 +675,7 @@ function RegistryPage({ type, records, onSave, onDelete, suppliers = [], onImpor
   const updateDraft = <K extends keyof RegistryRecord,>(field: K, value: RegistryRecord[K]) => setEditing((current) => current ? { ...current, [field]: value } : current);
   const toggleSupplier = (supplierId: string) => setEditing((current) => current ? { ...current, supplierIds: current.supplierIds.includes(supplierId) ? current.supplierIds.filter((id) => id !== supplierId) : [...current.supplierIds, supplierId] } : current);
   const saveRecord = () => {
-    if (!editing || !editing.name.trim()) return;
+    if (!editing?.name.trim()) return;
     onSave({ ...editing, name: editing.name.trim(), code: editing.code.trim() });
     setEditing(null);
   };
@@ -823,7 +821,7 @@ function ProviderPaymentsPage({ providers, payments, onSave, onDelete, company }
   };
   const save = (event: FormEvent) => {
     event.preventDefault();
-    if (!editing || !editing.date || !editing.providerId || !editing.reason.trim() || editing.amount <= 0) return;
+    if (!editing?.date || !editing.providerId || !editing.reason.trim() || editing.amount <= 0) return;
     onSave({ ...editing, reason: editing.reason.trim() });
     setEditing(null);
   };
