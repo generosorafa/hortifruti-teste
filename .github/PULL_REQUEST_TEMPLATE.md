@@ -21,6 +21,9 @@ Closes #
 <!-- Informe comandos executados, testes e verificações manuais. Não escreva apenas "testado". -->
 
 - [ ] `npm run build`
+- [ ] `npm run quality`
+- [ ] `npm run test:rules` quando houver impacto em dados, autenticação ou Firebase
+- [ ] `npm run test:e2e` quando houver impacto em fluxos da interface
 - [ ] Testes automatizados aplicáveis
 - [ ] Verificação manual do fluxo afetado
 
@@ -53,4 +56,6 @@ Evidências e detalhes:
 - [ ] O diff contém somente arquivos do escopo.
 - [ ] Não foram incluídos segredos, credenciais ou dados confidenciais.
 - [ ] Impactos em dados existentes e Firebase foram avaliados, quando aplicável.
+- [ ] O check obrigatório **Quality Gate** foi aprovado.
+- [ ] Componentes existentes foram reutilizados e novas abstrações têm uma responsabilidade concreta.
 - [ ] Riscos, limitações e próximos passos estão preenchidos.

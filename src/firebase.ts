@@ -133,14 +133,17 @@ export const saveFirestoreRecord = async <T extends { id: string }>(collectionNa
 
 export const saveFirestoreRecords = async <T extends { id: string }>(collectionName: string, records: T[]) => {
   if (!firestoreDb || !records.length) return;
+  const db = firestoreDb;
   const currentUser = firebaseAuth?.currentUser;
   for (let start = 0; start < records.length; start += 450) {
-    const batch = writeBatch(firestoreDb);
-    records.slice(start, start + 450).forEach((record) => batch.set(doc(firestoreDb, collectionName, record.id), {
-      ...record,
-      updatedAt: serverTimestamp(),
-      updatedBy: currentUser?.uid ?? "unknown",
-    }, { merge: true }));
+    const batch = writeBatch(db);
+    records.slice(start, start + 450).forEach((record) => {
+      batch.set(doc(db, collectionName, record.id), {
+        ...record,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser?.uid ?? "unknown",
+      }, { merge: true });
+    });
     await batch.commit();
   }
 };
@@ -152,16 +155,19 @@ export const deleteFirestoreRecord = async (collectionName: string, id: string) 
 
 export const seedFirestore = async (collections: Record<string, Array<{ id: string }>>) => {
   if (!firestoreDb) return;
-  const batch = writeBatch(firestoreDb);
+  const db = firestoreDb;
+  const batch = writeBatch(db);
   const currentUser = firebaseAuth?.currentUser;
-  Object.entries(collections).forEach(([collectionName, records]) => records.forEach((record) => {
-    batch.set(doc(firestoreDb!, collectionName, record.id), {
-      ...record,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      updatedBy: currentUser?.uid ?? "unknown",
-    }, { merge: true });
-  }));
+  Object.entries(collections).forEach(([collectionName, records]) => {
+    records.forEach((record) => {
+      batch.set(doc(db, collectionName, record.id), {
+        ...record,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser?.uid ?? "unknown",
+      }, { merge: true });
+    });
+  });
   await batch.commit();
 };
 

@@ -1,0 +1,28 @@
+version: 1
+project:
+  name: zeca-hortifruti-piloto
+
+layers:
+  - name: domain
+    match: [src/domain.ts]
+  - name: infrastructure
+    match: [src/firebase.ts]
+  - name: presentation
+    match: [src/App.tsx, src/main.tsx]
+
+ruleset:
+  domain: { mayDependOn: [] }
+  infrastructure: { mayDependOn: [domain] }
+  presentation: { mayDependOn: [domain, infrastructure] }
+
+rules:
+  - name: no-file-cycles
+    type: no-cycles
+    scope: file
+    severity: error
+
+expectations:
+  - name: domain-without-ui-or-firebase
+    expect: { layer: domain }
+    to:
+      notDependOnPackages: [react, react-dom, lucide-react, firebase]

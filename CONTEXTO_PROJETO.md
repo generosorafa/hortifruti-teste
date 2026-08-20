@@ -53,12 +53,20 @@ O PR deve começar como rascunho durante a implementação e só ficar pronto pa
 ### 4. Revisar, mesclar e publicar
 
 - Confira o diff completo e não inclua arquivos fora do escopo.
-- Execute, no mínimo, `npm run build`; rode testes adicionais proporcionais ao risco da mudança.
+- Execute `npm run quality`; rode `npm run test:rules`, `npm run test:e2e` e outras validações proporcionais ao risco da mudança.
 - Alterações no Firebase devem incluir a validação das regras e do fluxo de autorização quando aplicável.
-- Mescle somente um PR validado e pronto para revisão.
+- Mescle somente um PR validado, pronto para revisão e com o check obrigatório **Quality Gate** aprovado.
 - O deploy ocorre após o merge na `main` pelo GitHub Actions.
 - Confirme que o workflow **Publicar demonstração no GitHub Pages** terminou com sucesso.
 - Registre no retorno da tarefa o link da Issue, do PR e da versão publicada.
+
+## Esteira obrigatória de qualidade
+
+- A branch `main` deve exigir Pull Request e aprovação do check **Quality Gate** antes do merge.
+- O workflow `.github/workflows/quality.yml` valida lint, tipos, arquitetura, dependências, commits, testes, cobertura, regras do Firestore, build, performance e segurança.
+- Não desative, ignore ou torne não bloqueante um check para concluir uma entrega. Corrija a causa ou registre uma Issue específica se houver impedimento externo real.
+- Leia `QUALIDADE_E_SEGURANCA.md` antes de introduzir dependências, serviços externos, nova camada arquitetural ou coleta de observabilidade.
+- Reutilize componentes existentes. Componentize por responsabilidade concreta, aplique DRY com critério e evite abstrações prematuras, novos backends ou serviços sem necessidade demonstrada.
 
 ## Segurança e dados
 
