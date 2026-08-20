@@ -2,6 +2,8 @@
 
 Protótipo navegável do sistema operacional da Zeca Hortifruti. Esta versão foi criada exclusivamente para validação de fluxos e interface com o cliente.
 
+> **Antes de implementar qualquer mudança:** leia [CONTEXTO_PROJETO.md](CONTEXTO_PROJETO.md). Toda tarefa deve possuir uma Issue classificada como Correção, Melhoria ou Nova função e toda entrega deve passar por Pull Request vinculado.
+
 > Ambiente demonstrativo: todos os nomes, valores e registros exibidos são fictícios. Não utilizar para armazenar informações reais ou confidenciais.
 
 ## O que já pode ser avaliado

@@ -1,0 +1,44 @@
+name: Melhoria
+description: Aperfeiçoe uma função, fluxo, layout, segurança ou documentação existente.
+title: "[Melhoria] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: "Use este modelo quando a capacidade já existe, mas precisa ficar melhor."
+  - type: textarea
+    id: contexto
+    attributes:
+      label: Contexto e problema
+      description: Explique o fluxo atual e por que ele precisa melhorar.
+    validations:
+      required: true
+  - type: textarea
+    id: resultado
+    attributes:
+      label: Resultado esperado
+      description: Descreva a melhoria pela perspectiva de quem usa o sistema.
+    validations:
+      required: true
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Critérios de aceite
+      placeholder: "- [ ] ...\n- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: validacao
+    attributes:
+      label: Validação prevista
+      description: Informe testes, verificações manuais e dispositivos relevantes.
+    validations:
+      required: true
+  - type: textarea
+    id: riscos
+    attributes:
+      label: Riscos, limitações e dependências
+      placeholder: Nenhum risco conhecido.
+    validations:
+      required: true
