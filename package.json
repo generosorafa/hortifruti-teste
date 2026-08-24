@@ -35,17 +35,17 @@
     "@biomejs/biome": "2.5.9",
     "@commitlint/cli": "21.2.2",
     "@commitlint/config-conventional": "21.2.2",
-    "@firebase/rules-unit-testing": "^5.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@playwright/test": "1.62.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "4.1.11",
     "arch-contract": "0.3.0",
     "firebase-tools": "15.28.1",
     "knip": "6.32.2",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
     "vitest": "4.1.11"
   }
 }
